@@ -7,12 +7,13 @@ C implementation of [gRPC](http://www.grpc.io/) layered of top of core libgrpc.
 Make sure you have the following install in order to install dependencies
 
 ```
-apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev zlib1g openssl libssl-dev libc-ares-dev libc-ares2
+apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev zlib1g openssl libssl-dev libc-ares-dev libc-ares2 pkg-config
 ```
 
 ## Build
 
 ```sh
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 autoreconf --install
 git submodule update --init
 ./builddeps.sh
