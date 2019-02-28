@@ -4,7 +4,7 @@
 #
 
 #!/bin/sh
-pfix=/usr/
+pfix=/usr/local
 if [ $# -gt 0 ]
 then
     pfix=$1
