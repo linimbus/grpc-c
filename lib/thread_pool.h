@@ -6,13 +6,22 @@
 #ifndef GRPC_C_INTERNAL_THREAD_POOL_H
 #define GRPC_C_INTERNAL_THREAD_POOL_H
 
+#include <stdlib.h>
+#include <string.h>
 #include <strings.h>
 #include <sys/queue.h>
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
-#include <grpc/support/thd.h>
 #include <grpc/support/sync.h>
 #include <grpc/support/time.h>
+
+typedef uintptr_t gpr_thd_id;
+
+/* Thread creation options. */
+typedef struct {
+  int flags; /* Opaque field. Get and set with accessors below. */
+} gpr_thd_options;
+
 
 typedef struct grpc_c_thread_pool_s grpc_c_thread_pool_t;
 

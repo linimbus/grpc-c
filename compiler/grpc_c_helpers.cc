@@ -83,7 +83,7 @@ string StripProto(const string& filename) {
 }
 
 string FullNameToGrpcC(const string& full_name) {
-  vector<string> pieces;
+  std::vector<string> pieces;
   c::SplitStringUsing(full_name, ".", &pieces);
   string rv = "";
   for (unsigned i = 0; i < pieces.size(); i++) {

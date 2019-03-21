@@ -2,7 +2,7 @@
  * Copyright (c) 2016, Juniper Networks, Inc.
  * All rights reserved.
  */
-
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "config.h"
@@ -152,7 +152,7 @@ gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np)
     context->gcc_event.gce_type = GRPC_C_EVENT_RPC_INIT;
     context->gcc_event.gce_data = context;
 
-    context->gcc_cq = grpc_completion_queue_create(NULL);
+    context->gcc_cq = grpc_completion_queue_create(NULL,NULL,NULL);
     grpc_c_grpc_set_cq_callback(context->gcc_cq, gc_handle_server_event);
     context->gcc_data.gccd_server = server;
     context->gcc_state = GRPC_C_SERVER_CALLBACK_WAIT;
@@ -437,6 +437,8 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
     gpr_mu *context_lock = NULL;
     int rc = 0;
 
+    static int total_num = 0;
+
     while (!shutdown && !timeout) {
 	timeout = 0;
 	grpc_c_state_t state = GRPC_C_SERVER_CALLBACK_WAIT;
@@ -452,6 +454,8 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
 	    gpr_mu_unlock(context_lock);
 	}
 
+    printf("No.%d, ev : %d\r\n", total_num++, ev.type );
+
 	switch (ev.type) {
 	    case GRPC_OP_COMPLETE:
 		if (gc_trace) {
@@ -464,6 +468,8 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
 		 */
 		grpc_c_event_t *gcev = (grpc_c_event_t *)ev.tag;
 		if (gcev == NULL) break;
+
+        printf("No.%d, gc_ev : %d\r\n", total_num++, gcev->gce_type );
 
 		if (gcev->gce_type == GRPC_C_EVENT_RECV_CLOSE) {
 		    context = ((gcs_recv_close_data_t *)gcev->gce_data)->context;
@@ -785,7 +791,7 @@ gc_server_create_internal (const char *host, grpc_server_credentials *creds,
     }
     memset(server, 0, sizeof(grpc_c_server_t));
 
-    server->gcs_cq = grpc_completion_queue_create(NULL);
+    server->gcs_cq = grpc_completion_queue_create(NULL,NULL,NULL);
     grpc_c_grpc_set_cq_callback(server->gcs_cq, gc_handle_server_event);
     server->gcs_server = grpc_server_create(args, NULL);
     server->gcs_host = strdup(host);

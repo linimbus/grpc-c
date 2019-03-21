@@ -186,5 +186,5 @@ void
 grpc_c_trace_init ()
 {
     gpr_set_log_function(gc_gpr_log);
-    grpc_register_tracer("grpc_c_core", &gc_trace);
+    //grpc_register_tracer("grpc_c_core", &gc_trace);
 }

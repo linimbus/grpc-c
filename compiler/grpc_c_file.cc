@@ -95,17 +95,17 @@ FileGenerator::FileGenerator(const FileDescriptor* file,
                              const string& dllexport_decl)
   : file_(file),
     message_generators_(
-      new scoped_ptr<c::MessageGenerator>[file->message_type_count()]),
+      new boost::scoped_ptr<c::MessageGenerator>[file->message_type_count()]),
     grpc_c_message_generators_(
-      new scoped_ptr<GrpcCMessageGenerator>[file->message_type_count()]),
+      new boost::scoped_ptr<GrpcCMessageGenerator>[file->message_type_count()]),
     message_pack_unpack_generators_(
-      new scoped_ptr<MessagePackUnpackGenerator>[file->message_type_count()]),
+      new boost::scoped_ptr<MessagePackUnpackGenerator>[file->message_type_count()]),
     enum_generators_(
-      new scoped_ptr<c::EnumGenerator>[file->enum_type_count()]),
+      new boost::scoped_ptr<c::EnumGenerator>[file->enum_type_count()]),
     service_generators_(
-      new scoped_ptr<GrpcCServiceGenerator>[file->service_count()]),
+      new boost::scoped_ptr<GrpcCServiceGenerator>[file->service_count()]),
     extension_generators_(
-      new scoped_ptr<c::ExtensionGenerator>[file->extension_count()]) {
+      new boost::scoped_ptr<c::ExtensionGenerator>[file->extension_count()]) {
 
   for (int i = 0; i < file->message_type_count(); i++) {
     message_generators_[i].reset(

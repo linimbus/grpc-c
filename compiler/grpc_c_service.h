@@ -105,7 +105,7 @@ class GrpcCServiceGenerator {
   void GenerateCallersImplementations(io::Printer* printer);
 
   const ServiceDescriptor* descriptor_;
-  map<string, string> vars_;
+  std::map<string, string> vars_;
 
   GOOGLE_DISALLOW_EVIL_CONSTRUCTORS(GrpcCServiceGenerator);
 };

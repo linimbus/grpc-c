@@ -142,7 +142,7 @@ grpc_c_context_free (grpc_c_context_t *context)
 	gpr_free(context->gcc_trailing_metadata);
     }
 
-    if (context->gcc_call) grpc_call_destroy(context->gcc_call);
+    if (context->gcc_call) grpc_call_cancel(context->gcc_call,NULL);
 
     /*
      * Free ops payload when we are done with all the ops

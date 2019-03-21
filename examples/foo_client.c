@@ -31,17 +31,15 @@ main (int argc, char **argv)
     grpc_api_trace = 1;
     gpr_set_log_verbosity(1);
 
+    /*
+     * Create a client object with client name as foo client to be talking to
+     * a insecure server
+     */
+    grpc_c_client_t *client = grpc_c_client_init_by_host("127.0.0.1:3000", "foo client", NULL, NULL);
 
     int i;
     for ( i = 0 ; i < 2 ; i++ )
     {
-
-        /*
-         * Create a client object with client name as foo client to be talking to
-         * a insecure server
-         */
-        grpc_c_client_t *client = grpc_c_client_init_by_host("127.0.0.1:3000", "foo client", NULL, NULL);
-
         /*
          * Create a hello request message and call RPC
          */
@@ -63,8 +61,8 @@ main (int argc, char **argv)
         }
 
         //printf("Finished with %d\n", status);
-
-        grpc_c_client_free(client);
     }
+
+    grpc_c_client_free(client);
 
 }

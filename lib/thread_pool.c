@@ -5,6 +5,84 @@
 
 #include "thread_pool.h"
 
+
+struct thd_arg {
+  void (*body)(void *arg); /* body of a thread */
+  void *arg;               /* argument to a thread */
+};
+
+
+enum { GPR_THD_JOINABLE = 1 };
+
+gpr_thd_options gpr_thd_options_default(void) {
+  gpr_thd_options options;
+  memset(&options, 0, sizeof(options));
+  return options;
+}
+
+void gpr_thd_options_set_detached(gpr_thd_options* options) {
+  options->flags &= ~GPR_THD_JOINABLE;
+}
+
+void gpr_thd_options_set_joinable(gpr_thd_options* options) {
+  options->flags |= GPR_THD_JOINABLE;
+}
+
+int gpr_thd_options_is_detached(const gpr_thd_options* options) {
+  if (!options) return 1;
+  return (options->flags & GPR_THD_JOINABLE) == 0;
+}
+
+int gpr_thd_options_is_joinable(const gpr_thd_options* options) {
+  if (!options) return 0;
+  return (options->flags & GPR_THD_JOINABLE) == GPR_THD_JOINABLE;
+}
+
+
+/* Body of every thread started via gpr_thd_new. */
+static void *thread_body(void *v) {
+  struct thd_arg a = *(struct thd_arg *)v;
+  free(v);
+  (*a.body)(a.arg);
+  return NULL;
+}
+
+int gpr_thd_new(gpr_thd_id *t, void (*thd_body)(void *arg), void *arg,
+                const gpr_thd_options *options) {
+  int thread_started;
+  pthread_attr_t attr;
+  pthread_t p;
+  /* don't use gpr_malloc as we may cause an infinite recursion with
+   * the profiling code */
+  struct thd_arg *a = malloc(sizeof(*a));
+  GPR_ASSERT(a != NULL);
+  a->body = thd_body;
+  a->arg = arg;
+
+  GPR_ASSERT(pthread_attr_init(&attr) == 0);
+  if (gpr_thd_options_is_detached(options)) {
+    GPR_ASSERT(pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) ==
+               0);
+  } else {
+    GPR_ASSERT(pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE) ==
+               0);
+  }
+  thread_started = (pthread_create(&p, &attr, &thread_body, a) == 0);
+  GPR_ASSERT(pthread_attr_destroy(&attr) == 0);
+  if (!thread_started) {
+    /* don't use gpr_free, as this was allocated using malloc (see above) */
+    free(a);
+  }
+  *t = (gpr_thd_id)p;
+  return thread_started;
+}
+
+gpr_thd_id gpr_thd_currentid(void) { return (gpr_thd_id)pthread_self(); }
+
+void gpr_thd_join(gpr_thd_id t) { pthread_join((pthread_t)t, NULL); }
+
+
+
 /*
  * Thread function that will wait for work and execute callbacks from callback
  * queue when notified

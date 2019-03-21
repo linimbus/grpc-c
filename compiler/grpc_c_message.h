@@ -69,6 +69,9 @@
 #define GRPC_C_INTERNAL_COMPILER_C_MESSAGE_H
 
 #include <string>
+#include <boost/scoped_array.hpp>
+#include <boost/scoped_ptr.hpp>
+
 #include <google/protobuf/stubs/common.h>
 #include <protoc-c/c_field.h>
 #include <protoc-c/c_message.h>
@@ -124,7 +127,7 @@ class GrpcCMessageGenerator {
  private:
   const Descriptor* descriptor_;
   string dllexport_decl_;
-  scoped_array<scoped_ptr<GrpcCMessageGenerator> > grpc_c_nested_generators_;
+  boost::scoped_array<boost::scoped_ptr<GrpcCMessageGenerator> > grpc_c_nested_generators_;
 };
 
 }  // namespace grpc_c
