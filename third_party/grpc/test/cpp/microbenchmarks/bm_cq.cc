@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -35,14 +20,14 @@
  * working */
 
 #include <benchmark/benchmark.h>
-#include <grpc++/completion_queue.h>
-#include <grpc++/impl/grpc_library.h>
 #include <grpc/grpc.h>
+#include <grpc/support/log.h>
+#include <grpcpp/completion_queue.h>
+#include <grpcpp/impl/grpc_library.h>
 #include "test/cpp/microbenchmarks/helpers.h"
+#include "test/cpp/util/test_config.h"
 
-extern "C" {
 #include "src/core/lib/surface/completion_queue.h"
-}
 
 namespace grpc {
 namespace testing {
@@ -62,7 +47,8 @@ BENCHMARK(BM_CreateDestroyCpp);
 static void BM_CreateDestroyCpp2(benchmark::State& state) {
   TrackCounters track_counters;
   while (state.KeepRunning()) {
-    grpc_completion_queue* core_cq = grpc_completion_queue_create(NULL);
+    grpc_completion_queue* core_cq =
+        grpc_completion_queue_create_for_next(nullptr);
     CompletionQueue cq(core_cq);
   }
   track_counters.Finish(state);
@@ -72,16 +58,19 @@ BENCHMARK(BM_CreateDestroyCpp2);
 static void BM_CreateDestroyCore(benchmark::State& state) {
   TrackCounters track_counters;
   while (state.KeepRunning()) {
-    grpc_completion_queue_destroy(grpc_completion_queue_create(NULL));
+    // TODO: sreek Templatize this benchmark and pass completion type and
+    // polling type as parameters
+    grpc_completion_queue_destroy(
+        grpc_completion_queue_create_for_next(nullptr));
   }
   track_counters.Finish(state);
 }
 BENCHMARK(BM_CreateDestroyCore);
 
-static void DoneWithCompletionOnStack(grpc_exec_ctx* exec_ctx, void* arg,
+static void DoneWithCompletionOnStack(void* arg,
                                       grpc_cq_completion* completion) {}
 
-class DummyTag final : public CompletionQueueTag {
+class DummyTag final : public internal::CompletionQueueTag {
  public:
   bool FinalizeResult(void** tag, bool* status) override { return true; }
 };
@@ -93,11 +82,11 @@ static void BM_Pass1Cpp(benchmark::State& state) {
   while (state.KeepRunning()) {
     grpc_cq_completion completion;
     DummyTag dummy_tag;
-    grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
-    grpc_cq_begin_op(c_cq, &dummy_tag);
-    grpc_cq_end_op(&exec_ctx, c_cq, &dummy_tag, GRPC_ERROR_NONE,
-                   DoneWithCompletionOnStack, NULL, &completion);
-    grpc_exec_ctx_finish(&exec_ctx);
+    grpc_core::ExecCtx exec_ctx;
+    GPR_ASSERT(grpc_cq_begin_op(c_cq, &dummy_tag));
+    grpc_cq_end_op(c_cq, &dummy_tag, GRPC_ERROR_NONE, DoneWithCompletionOnStack,
+                   nullptr, &completion);
+
     void* tag;
     bool ok;
     cq.Next(&tag, &ok);
@@ -108,16 +97,17 @@ BENCHMARK(BM_Pass1Cpp);
 
 static void BM_Pass1Core(benchmark::State& state) {
   TrackCounters track_counters;
-  grpc_completion_queue* cq = grpc_completion_queue_create(NULL);
+  // TODO: sreek Templatize this benchmark and pass polling_type as a param
+  grpc_completion_queue* cq = grpc_completion_queue_create_for_next(nullptr);
   gpr_timespec deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
   while (state.KeepRunning()) {
     grpc_cq_completion completion;
-    grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
-    grpc_cq_begin_op(cq, NULL);
-    grpc_cq_end_op(&exec_ctx, cq, NULL, GRPC_ERROR_NONE,
-                   DoneWithCompletionOnStack, NULL, &completion);
-    grpc_exec_ctx_finish(&exec_ctx);
-    grpc_completion_queue_next(cq, deadline, NULL);
+    grpc_core::ExecCtx exec_ctx;
+    GPR_ASSERT(grpc_cq_begin_op(cq, nullptr));
+    grpc_cq_end_op(cq, nullptr, GRPC_ERROR_NONE, DoneWithCompletionOnStack,
+                   nullptr, &completion);
+
+    grpc_completion_queue_next(cq, deadline, nullptr);
   }
   grpc_completion_queue_destroy(cq);
   track_counters.Finish(state);
@@ -126,16 +116,17 @@ BENCHMARK(BM_Pass1Core);
 
 static void BM_Pluck1Core(benchmark::State& state) {
   TrackCounters track_counters;
-  grpc_completion_queue* cq = grpc_completion_queue_create(NULL);
+  // TODO: sreek Templatize this benchmark and pass polling_type as a param
+  grpc_completion_queue* cq = grpc_completion_queue_create_for_pluck(nullptr);
   gpr_timespec deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
   while (state.KeepRunning()) {
     grpc_cq_completion completion;
-    grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
-    grpc_cq_begin_op(cq, NULL);
-    grpc_cq_end_op(&exec_ctx, cq, NULL, GRPC_ERROR_NONE,
-                   DoneWithCompletionOnStack, NULL, &completion);
-    grpc_exec_ctx_finish(&exec_ctx);
-    grpc_completion_queue_pluck(cq, NULL, deadline, NULL);
+    grpc_core::ExecCtx exec_ctx;
+    GPR_ASSERT(grpc_cq_begin_op(cq, nullptr));
+    grpc_cq_end_op(cq, nullptr, GRPC_ERROR_NONE, DoneWithCompletionOnStack,
+                   nullptr, &completion);
+
+    grpc_completion_queue_pluck(cq, nullptr, deadline, nullptr);
   }
   grpc_completion_queue_destroy(cq);
   track_counters.Finish(state);
@@ -144,10 +135,11 @@ BENCHMARK(BM_Pluck1Core);
 
 static void BM_EmptyCore(benchmark::State& state) {
   TrackCounters track_counters;
-  grpc_completion_queue* cq = grpc_completion_queue_create(NULL);
+  // TODO: sreek Templatize this benchmark and pass polling_type as a param
+  grpc_completion_queue* cq = grpc_completion_queue_create_for_next(nullptr);
   gpr_timespec deadline = gpr_inf_past(GPR_CLOCK_MONOTONIC);
   while (state.KeepRunning()) {
-    grpc_completion_queue_next(cq, deadline, NULL);
+    grpc_completion_queue_next(cq, deadline, nullptr);
   }
   grpc_completion_queue_destroy(cq);
   track_counters.Finish(state);
@@ -157,4 +149,15 @@ BENCHMARK(BM_EmptyCore);
 }  // namespace testing
 }  // namespace grpc
 
-BENCHMARK_MAIN();
+// Some distros have RunSpecifiedBenchmarks under the benchmark namespace,
+// and others do not. This allows us to support both modes.
+namespace benchmark {
+void RunTheBenchmarksNamespaced() { RunSpecifiedBenchmarks(); }
+}  // namespace benchmark
+
+int main(int argc, char** argv) {
+  ::benchmark::Initialize(&argc, argv);
+  ::grpc::testing::InitTest(&argc, &argv, false);
+  benchmark::RunTheBenchmarksNamespaced();
+  return 0;
+}

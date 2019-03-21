@@ -1,33 +1,19 @@
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-require 'grpc'
+require 'spec_helper'
+require 'English'
 
 def load_test_certs
   test_root = File.join(File.dirname(__FILE__), 'testdata')
@@ -40,6 +26,28 @@ describe GRPC::Core::Channel do
 
   def create_test_cert
     GRPC::Core::ChannelCredentials.new(load_test_certs[0])
+  end
+
+  def fork_with_propagated_error_message
+    pipe_read, pipe_write = IO.pipe
+    pid = fork do
+      pipe_read.close
+      begin
+        yield
+      rescue => exc
+        pipe_write.syswrite(exc.message)
+      end
+      pipe_write.close
+    end
+    pipe_write.close
+
+    exc_message = pipe_read.read
+    Process.wait(pid)
+
+    unless $CHILD_STATUS.success?
+      raise "forked process failed with #{$CHILD_STATUS}"
+    end
+    raise exc_message unless exc_message.empty?
   end
 
   shared_examples '#new' do
@@ -94,6 +102,14 @@ describe GRPC::Core::Channel do
       blk = construct_with_args(args)
       expect(&blk).to_not raise_error
     end
+
+    it 'raises if grpc was initialized in another process' do
+      blk = construct_with_args({})
+      expect(&blk).not_to raise_error
+      expect do
+        fork_with_propagated_error_message(&blk)
+      end.to raise_error(RuntimeError, 'grpc cannot be used before and after forking')
+    end
   end
 
   describe '#new for secure channels' do
@@ -135,6 +151,19 @@ describe GRPC::Core::Channel do
         ch.create_call(nil, nil, 'dummy_method', nil, deadline)
       end
       expect(&blk).to raise_error(RuntimeError)
+    end
+
+    it 'raises if grpc was initialized in another process' do
+      ch = GRPC::Core::Channel.new(fake_host, nil, :this_channel_is_insecure)
+
+      deadline = Time.now + 5
+
+      blk = proc do
+        fork_with_propagated_error_message do
+          ch.create_call(nil, nil, 'dummy_method', nil, deadline)
+        end
+      end
+      expect(&blk).to raise_error(RuntimeError, 'grpc cannot be used before and after forking')
     end
   end
 

@@ -33,16 +33,13 @@
 #include <google/protobuf/compiler/java/java_shared_code_generator.h>
 
 #include <memory>
-#ifndef _SHARED_PTR_H
-#include <google/protobuf/stubs/shared_ptr.h>
-#endif
 
 #include <google/protobuf/compiler/java/java_helpers.h>
 #include <google/protobuf/compiler/java/java_name_resolver.h>
 #include <google/protobuf/compiler/code_generator.h>
+#include <google/protobuf/descriptor.pb.h>
 #include <google/protobuf/io/printer.h>
 #include <google/protobuf/io/zero_copy_stream.h>
-#include <google/protobuf/descriptor.pb.h>
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/stubs/strutil.h>
 
@@ -59,8 +56,8 @@ SharedCodeGenerator::~SharedCodeGenerator() {
 }
 
 void SharedCodeGenerator::Generate(GeneratorContext* context,
-                                   vector<string>* file_list,
-                                   vector<string>* annotation_file_list) {
+                                   std::vector<string>* file_list,
+                                   std::vector<string>* annotation_file_list) {
   string java_package = FileJavaPackage(file_);
   string package_dir = JavaPackageToDir(java_package);
 
@@ -69,11 +66,11 @@ void SharedCodeGenerator::Generate(GeneratorContext* context,
     string classname = name_resolver_->GetDescriptorClassName(file_);
     string filename = package_dir + classname + ".java";
     file_list->push_back(filename);
-    google::protobuf::scoped_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
+    std::unique_ptr<io::ZeroCopyOutputStream> output(context->Open(filename));
     GeneratedCodeInfo annotations;
     io::AnnotationProtoCollector<GeneratedCodeInfo> annotation_collector(
         &annotations);
-    google::protobuf::scoped_ptr<io::Printer> printer(
+    std::unique_ptr<io::Printer> printer(
         new io::Printer(output.get(), '$',
                         options_.annotate_code ? &annotation_collector : NULL));
     string info_relative_path = classname + ".java.pb.meta";
@@ -108,7 +105,7 @@ void SharedCodeGenerator::Generate(GeneratorContext* context,
       "}\n");
 
     if (options_.annotate_code) {
-      google::protobuf::scoped_ptr<io::ZeroCopyOutputStream> info_output(
+      std::unique_ptr<io::ZeroCopyOutputStream> info_output(
           context->Open(info_full_path));
       annotations.SerializeToZeroCopyStream(info_output.get());
       annotation_file_list->push_back(info_full_path);
@@ -118,7 +115,6 @@ void SharedCodeGenerator::Generate(GeneratorContext* context,
     output.reset();
   }
 }
-
 
 void SharedCodeGenerator::GenerateDescriptors(io::Printer* printer) {
   // Embed the descriptor.  We simply serialize the entire FileDescriptorProto
@@ -134,7 +130,6 @@ void SharedCodeGenerator::GenerateDescriptors(io::Printer* printer) {
   FileDescriptorProto file_proto;
   file_->CopyTo(&file_proto);
 
-
   string file_data;
   file_proto.SerializeToString(&file_data);
 
@@ -142,13 +137,16 @@ void SharedCodeGenerator::GenerateDescriptors(io::Printer* printer) {
     "java.lang.String[] descriptorData = {\n");
   printer->Indent();
 
-  // Only write 40 bytes per line.
+  // Limit the number of bytes per line.
   static const int kBytesPerLine = 40;
+  // Limit the number of lines per string part.
+  static const int kLinesPerPart = 400;
+  // Every block of bytes, start a new string literal, in order to avoid the
+  // 64k length limit. Note that this value needs to be <64k.
+  static const int kBytesPerPart = kBytesPerLine * kLinesPerPart;
   for (int i = 0; i < file_data.size(); i += kBytesPerLine) {
     if (i > 0) {
-      // Every 400 lines, start a new string literal, in order to avoid the
-      // 64k length limit.
-      if (i % 400 == 0) {
+      if (i % kBytesPerPart == 0) {
         printer->Print(",\n");
       } else {
         printer->Print(" +\n");
@@ -181,15 +179,19 @@ void SharedCodeGenerator::GenerateDescriptors(io::Printer* printer) {
 
   // -----------------------------------------------------------------
   // Find out all dependencies.
-  vector<pair<string, string> > dependencies;
+  std::vector<std::pair<string, string> > dependencies;
   for (int i = 0; i < file_->dependency_count(); i++) {
-    if (ShouldIncludeDependency(file_->dependency(i))) {
-      string filename = file_->dependency(i)->name();
-      string classname = FileJavaPackage(file_->dependency(i)) + "." +
-                         name_resolver_->GetDescriptorClassName(
-                             file_->dependency(i));
-      dependencies.push_back(std::make_pair(filename, classname));
+    string filename = file_->dependency(i)->name();
+    string package = FileJavaPackage(file_->dependency(i));
+    string classname = name_resolver_->GetDescriptorClassName(
+        file_->dependency(i));
+    string full_name;
+    if (package.empty()) {
+      full_name = classname;
+    } else {
+      full_name = package + "." + classname;
     }
+    dependencies.push_back(std::make_pair(filename, full_name));
   }
 
   // -----------------------------------------------------------------
@@ -209,11 +211,6 @@ void SharedCodeGenerator::GenerateDescriptors(io::Printer* printer) {
 
   printer->Print(
     "    }, assigner);\n");
-}
-
-bool SharedCodeGenerator::ShouldIncludeDependency(
-    const FileDescriptor* descriptor) {
-  return true;
 }
 
 }  // namespace java

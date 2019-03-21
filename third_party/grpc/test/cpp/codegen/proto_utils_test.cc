@@ -1,93 +1,171 @@
 /*
  *
- * Copyright 2017, Google Inc.
- * All rights reserved.
+ * Copyright 2017 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
-#include <grpc++/impl/codegen/proto_utils.h>
-#include <grpc++/impl/grpc_library.h>
+#include <grpc/impl/codegen/byte_buffer.h>
+#include <grpc/slice.h>
+#include <grpcpp/impl/codegen/grpc_library.h>
+#include <grpcpp/impl/codegen/proto_utils.h>
+#include <grpcpp/impl/grpc_library.h>
 #include <gtest/gtest.h>
 
 namespace grpc {
+
 namespace internal {
 
-static GrpcLibraryInitializer g_gli_initializer;
-
-// Provide access to GrpcBufferWriter internals.
-class GrpcBufferWriterPeer {
+// Provide access to ProtoBufferWriter internals.
+class ProtoBufferWriterPeer {
  public:
-  explicit GrpcBufferWriterPeer(internal::GrpcBufferWriter* writer)
-      : writer_(writer) {}
+  explicit ProtoBufferWriterPeer(ProtoBufferWriter* writer) : writer_(writer) {}
   bool have_backup() const { return writer_->have_backup_; }
   const grpc_slice& backup_slice() const { return writer_->backup_slice_; }
   const grpc_slice& slice() const { return writer_->slice_; }
 
  private:
-  GrpcBufferWriter* writer_;
+  ProtoBufferWriter* writer_;
+};
+
+// Provide access to ByteBuffer internals.
+class GrpcByteBufferPeer {
+ public:
+  explicit GrpcByteBufferPeer(ByteBuffer* bb) : bb_(bb) {}
+  grpc_byte_buffer* c_buffer() { return bb_->c_buffer(); }
+
+ private:
+  ByteBuffer* bb_;
 };
 
 class ProtoUtilsTest : public ::testing::Test {};
 
 // Regression test for a memory corruption bug where a series of
-// GrpcBufferWriter Next()/Backup() invocations could result in a dangling
+// ProtoBufferWriter Next()/Backup() invocations could result in a dangling
 // pointer returned by Next() due to the interaction between grpc_slice inlining
 // and GRPC_SLICE_START_PTR.
-TEST_F(ProtoUtilsTest, BackupNext) {
-  // Ensure the GrpcBufferWriter internals are initialized.
-  g_gli_initializer.summon();
-
-  grpc_byte_buffer* bp;
-  GrpcBufferWriter writer(&bp, 8192);
-  GrpcBufferWriterPeer peer(&writer);
+TEST_F(ProtoUtilsTest, TinyBackupThenNext) {
+  ByteBuffer bp;
+  const int block_size = 1024;
+  ProtoBufferWriter writer(&bp, block_size, 8192);
+  ProtoBufferWriterPeer peer(&writer);
 
   void* data;
   int size;
   // Allocate a slice.
   ASSERT_TRUE(writer.Next(&data, &size));
-  EXPECT_EQ(8192, size);
-  // Return a single byte. Before the fix that this test acts as a regression
-  // for, this would have resulted in an inlined backup slice.
+  EXPECT_EQ(block_size, size);
+  // Return a single byte.
   writer.BackUp(1);
-  EXPECT_TRUE(!peer.have_backup());
-  // On the next allocation, the slice is non-inlined.
+  EXPECT_FALSE(peer.have_backup());
+  // On the next allocation, the returned slice is non-inlined.
   ASSERT_TRUE(writer.Next(&data, &size));
-  EXPECT_TRUE(peer.slice().refcount != NULL);
-
-  // Cleanup.
-  g_core_codegen_interface->grpc_byte_buffer_destroy(bp);
+  EXPECT_TRUE(peer.slice().refcount != nullptr);
+  EXPECT_EQ(block_size, size);
 }
 
+namespace {
+
+// Set backup_size to 0 to indicate no backup is needed.
+void BufferWriterTest(int block_size, int total_size, int backup_size) {
+  ByteBuffer bb;
+  ProtoBufferWriter writer(&bb, block_size, total_size);
+
+  int written_size = 0;
+  void* data;
+  int size = 0;
+  bool backed_up_entire_slice = false;
+
+  while (written_size < total_size) {
+    EXPECT_TRUE(writer.Next(&data, &size));
+    EXPECT_GT(size, 0);
+    EXPECT_TRUE(data);
+    int write_size = size;
+    bool should_backup = false;
+    if (backup_size > 0 && size > backup_size) {
+      write_size = size - backup_size;
+      should_backup = true;
+    } else if (size == backup_size && !backed_up_entire_slice) {
+      // only backup entire slice once.
+      backed_up_entire_slice = true;
+      should_backup = true;
+      write_size = 0;
+    }
+    // May need a last backup.
+    if (write_size + written_size > total_size) {
+      write_size = total_size - written_size;
+      should_backup = true;
+      backup_size = size - write_size;
+      ASSERT_GT(backup_size, 0);
+    }
+    for (int i = 0; i < write_size; i++) {
+      (static_cast<uint8_t*>(data))[i] = written_size % 128;
+      written_size++;
+    }
+    if (should_backup) {
+      writer.BackUp(backup_size);
+    }
+  }
+  EXPECT_EQ(bb.Length(), (size_t)total_size);
+
+  grpc_byte_buffer_reader reader;
+  GrpcByteBufferPeer peer(&bb);
+  grpc_byte_buffer_reader_init(&reader, peer.c_buffer());
+  int read_bytes = 0;
+  while (read_bytes < total_size) {
+    grpc_slice s;
+    EXPECT_TRUE(grpc_byte_buffer_reader_next(&reader, &s));
+    for (size_t i = 0; i < GRPC_SLICE_LENGTH(s); i++) {
+      EXPECT_EQ(GRPC_SLICE_START_PTR(s)[i], read_bytes % 128);
+      read_bytes++;
+    }
+    grpc_slice_unref(s);
+  }
+  EXPECT_EQ(read_bytes, total_size);
+  grpc_byte_buffer_reader_destroy(&reader);
+}
+
+TEST(WriterTest, TinyBlockTinyBackup) {
+  for (int i = 2; i < static_cast<int> GRPC_SLICE_INLINED_SIZE; i++) {
+    BufferWriterTest(i, 256, 1);
+  }
+}
+
+TEST(WriterTest, SmallBlockTinyBackup) { BufferWriterTest(64, 256, 1); }
+
+TEST(WriterTest, SmallBlockNoBackup) { BufferWriterTest(64, 256, 0); }
+
+TEST(WriterTest, SmallBlockFullBackup) { BufferWriterTest(64, 256, 64); }
+
+TEST(WriterTest, LargeBlockTinyBackup) { BufferWriterTest(4096, 8192, 1); }
+
+TEST(WriterTest, LargeBlockNoBackup) { BufferWriterTest(4096, 8192, 0); }
+
+TEST(WriterTest, LargeBlockFullBackup) { BufferWriterTest(4096, 8192, 4096); }
+
+TEST(WriterTest, LargeBlockLargeBackup) { BufferWriterTest(4096, 8192, 4095); }
+
+}  // namespace
 }  // namespace internal
 }  // namespace grpc
 
 int main(int argc, char** argv) {
+  // Ensure the ProtoBufferWriter internals are initialized.
+  grpc::internal::GrpcLibraryInitializer init;
+  init.summon();
+  grpc::GrpcLibraryCodegen lib;
+
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

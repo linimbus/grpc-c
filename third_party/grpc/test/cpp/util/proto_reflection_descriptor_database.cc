@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -37,11 +22,11 @@
 
 #include <grpc/support/log.h>
 
+using grpc::reflection::v1alpha::ErrorResponse;
+using grpc::reflection::v1alpha::ListServiceResponse;
 using grpc::reflection::v1alpha::ServerReflection;
 using grpc::reflection::v1alpha::ServerReflectionRequest;
 using grpc::reflection::v1alpha::ServerReflectionResponse;
-using grpc::reflection::v1alpha::ListServiceResponse;
-using grpc::reflection::v1alpha::ErrorResponse;
 
 namespace grpc {
 
@@ -50,7 +35,7 @@ ProtoReflectionDescriptorDatabase::ProtoReflectionDescriptorDatabase(
     : stub_(std::move(stub)) {}
 
 ProtoReflectionDescriptorDatabase::ProtoReflectionDescriptorDatabase(
-    std::shared_ptr<grpc::Channel> channel)
+    const std::shared_ptr<grpc::Channel>& channel)
     : stub_(ServerReflection::NewStub(channel)) {}
 
 ProtoReflectionDescriptorDatabase::~ProtoReflectionDescriptorDatabase() {
@@ -58,9 +43,15 @@ ProtoReflectionDescriptorDatabase::~ProtoReflectionDescriptorDatabase() {
     stream_->WritesDone();
     Status status = stream_->Finish();
     if (!status.ok()) {
+      if (status.error_code() == StatusCode::UNIMPLEMENTED) {
+        gpr_log(GPR_INFO,
+                "Reflection request not implemented; "
+                "is the ServerReflection service enabled?");
+      }
       gpr_log(GPR_INFO,
               "ServerReflectionInfo rpc failed. Error code: %d, details: %s",
-              (int)status.error_code(), status.error_message().c_str());
+              static_cast<int>(status.error_code()),
+              status.error_message().c_str());
     }
   }
 }
@@ -79,14 +70,16 @@ bool ProtoReflectionDescriptorDatabase::FindFileByName(
   request.set_file_by_filename(filename);
   ServerReflectionResponse response;
 
-  DoOneRequest(request, response);
+  if (!DoOneRequest(request, response)) {
+    return false;
+  }
 
   if (response.message_response_case() ==
       ServerReflectionResponse::MessageResponseCase::kFileDescriptorResponse) {
     AddFileFromResponse(response.file_descriptor_response());
   } else if (response.message_response_case() ==
              ServerReflectionResponse::MessageResponseCase::kErrorResponse) {
-    const ErrorResponse error = response.error_response();
+    const ErrorResponse& error = response.error_response();
     if (error.error_code() == StatusCode::NOT_FOUND) {
       gpr_log(GPR_INFO, "NOT_FOUND from server for FindFileByName(%s)",
               filename.c_str());
@@ -124,14 +117,16 @@ bool ProtoReflectionDescriptorDatabase::FindFileContainingSymbol(
   request.set_file_containing_symbol(symbol_name);
   ServerReflectionResponse response;
 
-  DoOneRequest(request, response);
+  if (!DoOneRequest(request, response)) {
+    return false;
+  }
 
   if (response.message_response_case() ==
       ServerReflectionResponse::MessageResponseCase::kFileDescriptorResponse) {
     AddFileFromResponse(response.file_descriptor_response());
   } else if (response.message_response_case() ==
              ServerReflectionResponse::MessageResponseCase::kErrorResponse) {
-    const ErrorResponse error = response.error_response();
+    const ErrorResponse& error = response.error_response();
     if (error.error_code() == StatusCode::NOT_FOUND) {
       missing_symbols_.insert(symbol_name);
       gpr_log(GPR_INFO,
@@ -178,14 +173,16 @@ bool ProtoReflectionDescriptorDatabase::FindFileContainingExtension(
       field_number);
   ServerReflectionResponse response;
 
-  DoOneRequest(request, response);
+  if (!DoOneRequest(request, response)) {
+    return false;
+  }
 
   if (response.message_response_case() ==
       ServerReflectionResponse::MessageResponseCase::kFileDescriptorResponse) {
     AddFileFromResponse(response.file_descriptor_response());
   } else if (response.message_response_case() ==
              ServerReflectionResponse::MessageResponseCase::kErrorResponse) {
-    const ErrorResponse error = response.error_response();
+    const ErrorResponse& error = response.error_response();
     if (error.error_code() == StatusCode::NOT_FOUND) {
       if (missing_extensions_.find(containing_type) ==
           missing_extensions_.end()) {
@@ -228,7 +225,9 @@ bool ProtoReflectionDescriptorDatabase::FindAllExtensionNumbers(
   request.set_all_extension_numbers_of_type(extendee_type);
   ServerReflectionResponse response;
 
-  DoOneRequest(request, response);
+  if (!DoOneRequest(request, response)) {
+    return false;
+  }
 
   if (response.message_response_case() ==
       ServerReflectionResponse::MessageResponseCase::
@@ -239,7 +238,7 @@ bool ProtoReflectionDescriptorDatabase::FindAllExtensionNumbers(
     return true;
   } else if (response.message_response_case() ==
              ServerReflectionResponse::MessageResponseCase::kErrorResponse) {
-    const ErrorResponse error = response.error_response();
+    const ErrorResponse& error = response.error_response();
     if (error.error_code() == StatusCode::NOT_FOUND) {
       gpr_log(GPR_INFO, "NOT_FOUND from server for FindAllExtensionNumbers(%s)",
               extendee_type.c_str());
@@ -260,18 +259,20 @@ bool ProtoReflectionDescriptorDatabase::GetServices(
   request.set_list_services("");
   ServerReflectionResponse response;
 
-  DoOneRequest(request, response);
+  if (!DoOneRequest(request, response)) {
+    return false;
+  }
 
   if (response.message_response_case() ==
       ServerReflectionResponse::MessageResponseCase::kListServicesResponse) {
-    const ListServiceResponse ls_response = response.list_services_response();
+    const ListServiceResponse& ls_response = response.list_services_response();
     for (int i = 0; i < ls_response.service_size(); ++i) {
       (*output).push_back(ls_response.service(i).name());
     }
     return true;
   } else if (response.message_response_case() ==
              ServerReflectionResponse::MessageResponseCase::kErrorResponse) {
-    const ErrorResponse error = response.error_response();
+    const ErrorResponse& error = response.error_response();
     gpr_log(GPR_INFO,
             "Error on GetServices()\n\tError code: %d\n"
             "\tError Message: %s",

@@ -1,32 +1,17 @@
 #region Copyright notice and license
-// Copyright 2015, Google Inc.
-// All rights reserved.
+// Copyright 2015 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 #endregion
 
 using System;
@@ -87,9 +72,9 @@ namespace Grpc.Core
             this.environment = GrpcEnvironment.AddRef();
 
             this.completionQueue = this.environment.PickCompletionQueue();
-            using (var nativeCredentials = credentials.ToNativeCredentials())
             using (var nativeChannelArgs = ChannelOptions.CreateChannelArgs(this.options.Values))
             {
+                var nativeCredentials = credentials.GetNativeCredentials();
                 if (nativeCredentials != null)
                 {
                     this.handle = ChannelSafeHandle.CreateSecure(nativeCredentials, target, nativeChannelArgs);
@@ -137,29 +122,51 @@ namespace Grpc.Core
             }
         }
 
+        // cached handler for watch connectivity state
+        static readonly BatchCompletionDelegate WatchConnectivityStateHandler = (success, ctx, state) =>
+        {
+            var tcs = (TaskCompletionSource<bool>) state;
+            tcs.SetResult(success);
+        };
+
         /// <summary>
         /// Returned tasks completes once channel state has become different from 
         /// given lastObservedState. 
         /// If deadline is reached or and error occurs, returned task is cancelled.
         /// </summary>
-        public Task WaitForStateChangedAsync(ChannelState lastObservedState, DateTime? deadline = null)
+        public async Task WaitForStateChangedAsync(ChannelState lastObservedState, DateTime? deadline = null)
+        {
+            var result = await TryWaitForStateChangedAsync(lastObservedState, deadline).ConfigureAwait(false);
+            if (!result)
+            {
+                throw new TaskCanceledException("Reached deadline.");
+            }
+        }
+
+        /// <summary>
+        /// Returned tasks completes once channel state has become different from
+        /// given lastObservedState (<c>true</c> is returned) or if the wait has timed out (<c>false</c> is returned).
+        /// </summary>
+        public Task<bool> TryWaitForStateChangedAsync(ChannelState lastObservedState, DateTime? deadline = null)
         {
             GrpcPreconditions.CheckArgument(lastObservedState != ChannelState.Shutdown,
                 "Shutdown is a terminal state. No further state changes can occur.");
-            var tcs = new TaskCompletionSource<object>();
+            var tcs = new TaskCompletionSource<bool>();
             var deadlineTimespec = deadline.HasValue ? Timespec.FromDateTime(deadline.Value) : Timespec.InfFuture;
-            var handler = new BatchCompletionDelegate((success, ctx) =>
+            lock (myLock)
             {
-                if (success)
+                if (handle.IsClosed)
                 {
-                    tcs.SetResult(null);
+                    // If channel has been already shutdown and handle was disposed, we would end up with
+                    // an abandoned completion added to the completion registry. Instead, we make sure we fail early.
+                    throw new ObjectDisposedException(nameof(handle), "Channel handle has already been disposed.");
                 }
                 else
                 {
-                    tcs.SetCanceled();
+                    // pass "tcs" as "state" for WatchConnectivityStateHandler.
+                    handle.WatchConnectivityState(lastObservedState, deadlineTimespec, completionQueue, WatchConnectivityStateHandler, tcs);
                 }
-            });
-            handle.WatchConnectivityState(lastObservedState, deadlineTimespec, completionQueue, handler);
+            }
             return tcs.Task;
         }
 
@@ -242,7 +249,10 @@ namespace Grpc.Core
                 Logger.Warning("Channel shutdown was called but there are still {0} active calls for that channel.", activeCallCount);
             }
 
-            handle.Dispose();
+            lock (myLock)
+            {
+                handle.Dispose();
+            }
 
             await GrpcEnvironment.ReleaseAsync().ConfigureAwait(false);
         }
@@ -287,11 +297,20 @@ namespace Grpc.Core
             activeCallCounter.Decrement();
         }
 
+        // for testing only
+        internal long GetCallReferenceCount()
+        {
+            return activeCallCounter.Count;
+        }
+
         private ChannelState GetConnectivityState(bool tryToConnect)
         {
             try
             {
-                return handle.CheckConnectivityState(tryToConnect);
+                lock (myLock)
+                {
+                    return handle.CheckConnectivityState(tryToConnect);
+                }
             }
             catch (ObjectDisposedException)
             {

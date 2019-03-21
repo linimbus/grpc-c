@@ -1,33 +1,18 @@
 #!/usr/bin/env ruby
 
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 this_dir = File.expand_path(File.dirname(__FILE__))
 protos_lib_dir = File.join(this_dir, 'lib')
@@ -44,6 +29,9 @@ require 'optparse'
 require 'thread'
 require 'timeout'
 require 'English' # see https://github.com/bbatsov/rubocop/issues/1747
+require_relative '../spec/support/helpers'
+
+include GRPC::Spec::Helpers
 
 # GreeterServer is simple server that implements the Helloworld Greeter server.
 class EchoServerImpl < Echo::EchoServer::Service
@@ -55,12 +43,13 @@ end
 
 # ServerRunner starts an "echo server" that test clients can make calls to
 class ServerRunner
-  def initialize(service_impl)
+  def initialize(service_impl, rpc_server_args: {})
     @service_impl = service_impl
+    @rpc_server_args = rpc_server_args
   end
 
   def run
-    @srv = GRPC::RpcServer.new
+    @srv = new_rpc_server_for_testing(@rpc_server_args)
     port = @srv.add_http2_port('0.0.0.0:0', :this_port_is_insecure)
     @srv.handle(@service_impl)
 
@@ -90,7 +79,6 @@ def start_client(client_main, server_port)
                              client_path,
                              "--client_control_port=#{client_control_port}",
                              "--server_port=#{server_port}")
-  sleep 1
   control_stub = ClientControl::ClientController::Stub.new(
     "localhost:#{client_control_port}", :this_channel_is_insecure)
   [control_stub, client_pid]

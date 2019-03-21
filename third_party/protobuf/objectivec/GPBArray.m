@@ -195,7 +195,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 //%}
 //%
 //%- (void)enumerate##ACCESSOR_NAME##ValuesWithBlock:(void (^)(TYPE value, NSUInteger idx, BOOL *stop))block {
-//%  [self enumerate##ACCESSOR_NAME##ValuesWithOptions:0 usingBlock:block];
+//%  [self enumerate##ACCESSOR_NAME##ValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 //%}
 //%
 //%- (void)enumerate##ACCESSOR_NAME##ValuesWithOptions:(NSEnumerationOptions)opts
@@ -406,7 +406,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(int32_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -654,7 +654,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(uint32_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -902,7 +902,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(int64_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -1150,7 +1150,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(uint64_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -1398,7 +1398,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(float value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -1646,7 +1646,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(double value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -1894,7 +1894,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(BOOL value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -2166,7 +2166,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateRawValuesWithBlock:(void (^)(int32_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateRawValuesWithOptions:0 usingBlock:block];
+  [self enumerateRawValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateRawValuesWithOptions:(NSEnumerationOptions)opts
@@ -2218,7 +2218,7 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 }
 
 - (void)enumerateValuesWithBlock:(void (^)(int32_t value, NSUInteger idx, BOOL *stop))block {
-  [self enumerateValuesWithOptions:0 usingBlock:block];
+  [self enumerateValuesWithOptions:(NSEnumerationOptions)0 usingBlock:block];
 }
 
 - (void)enumerateValuesWithOptions:(NSEnumerationOptions)opts
@@ -2519,14 +2519,14 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
 
 - (id)copyWithZone:(NSZone *)zone {
   if (_array == nil) {
-    _array = [[NSMutableArray alloc] init];
+    return [[NSMutableArray allocWithZone:zone] init];
   }
   return [_array copyWithZone:zone];
 }
 
 - (id)mutableCopyWithZone:(NSZone *)zone {
   if (_array == nil) {
-    _array = [[NSMutableArray alloc] init];
+    return [[NSMutableArray allocWithZone:zone] init];
   }
   return [_array mutableCopyWithZone:zone];
 }
@@ -2537,12 +2537,12 @@ static BOOL ArrayDefault_IsValidValue(int32_t value) {
   return [_array countByEnumeratingWithState:state objects:buffer count:len];
 }
 
-- (void)enumerateObjectsUsingBlock:(void (^)(id obj, NSUInteger idx, BOOL *stop))block {
+- (void)enumerateObjectsUsingBlock:(void (NS_NOESCAPE ^)(id obj, NSUInteger idx, BOOL *stop))block {
   [_array enumerateObjectsUsingBlock:block];
 }
 
 - (void)enumerateObjectsWithOptions:(NSEnumerationOptions)opts
-                         usingBlock:(void (^)(id obj, NSUInteger idx, BOOL *stop))block {
+                         usingBlock:(void (NS_NOESCAPE ^)(id obj, NSUInteger idx, BOOL *stop))block {
   [_array enumerateObjectsWithOptions:opts usingBlock:block];
 }
 

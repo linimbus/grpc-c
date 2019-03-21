@@ -1,33 +1,18 @@
 #region Copyright notice and license
 
-// Copyright 2015, Google Inc.
-// All rights reserved.
+// Copyright 2015 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #endregion
 
@@ -51,14 +36,25 @@ namespace Grpc.Core
         private readonly Metadata requestHeaders;
         private readonly CancellationToken cancellationToken;
         private readonly Metadata responseTrailers = new Metadata();
+        private readonly Func<Metadata, Task> writeHeadersFunc;
+        private readonly IHasWriteOptions writeOptionsHolder;
+        private readonly Lazy<AuthContext> authContext;
+        private readonly Func<string> testingOnlyPeerGetter;
+        private readonly Func<AuthContext> testingOnlyAuthContextGetter;
+        private readonly Func<ContextPropagationToken> testingOnlyContextPropagationTokenFactory;
 
         private Status status = Status.DefaultSuccess;
-        private Func<Metadata, Task> writeHeadersFunc;
-        private IHasWriteOptions writeOptionsHolder;
-        private Lazy<AuthContext> authContext;
 
         internal ServerCallContext(CallSafeHandle callHandle, string method, string host, DateTime deadline, Metadata requestHeaders, CancellationToken cancellationToken,
             Func<Metadata, Task> writeHeadersFunc, IHasWriteOptions writeOptionsHolder)
+            : this(callHandle, method, host, deadline, requestHeaders, cancellationToken, writeHeadersFunc, writeOptionsHolder, null, null, null)
+        {
+        }
+
+        // Additional constructor params should be used for testing only
+        internal ServerCallContext(CallSafeHandle callHandle, string method, string host, DateTime deadline, Metadata requestHeaders, CancellationToken cancellationToken,
+            Func<Metadata, Task> writeHeadersFunc, IHasWriteOptions writeOptionsHolder,
+            Func<string> testingOnlyPeerGetter, Func<AuthContext> testingOnlyAuthContextGetter, Func<ContextPropagationToken> testingOnlyContextPropagationTokenFactory)
         {
             this.callHandle = callHandle;
             this.method = method;
@@ -69,6 +65,9 @@ namespace Grpc.Core
             this.writeHeadersFunc = writeHeadersFunc;
             this.writeOptionsHolder = writeOptionsHolder;
             this.authContext = new Lazy<AuthContext>(GetAuthContextEager);
+            this.testingOnlyPeerGetter = testingOnlyPeerGetter;
+            this.testingOnlyAuthContextGetter = testingOnlyAuthContextGetter;
+            this.testingOnlyContextPropagationTokenFactory = testingOnlyContextPropagationTokenFactory;
         }
 
         /// <summary>
@@ -88,6 +87,10 @@ namespace Grpc.Core
         /// </summary>
         public ContextPropagationToken CreatePropagationToken(ContextPropagationOptions options = null)
         {
+            if (testingOnlyContextPropagationTokenFactory != null)
+            {
+                return testingOnlyContextPropagationTokenFactory();
+            }
             return new ContextPropagationToken(callHandle, deadline, cancellationToken, options);
         }
             
@@ -114,6 +117,10 @@ namespace Grpc.Core
         {
             get
             {
+                if (testingOnlyPeerGetter != null)
+                {
+                    return testingOnlyPeerGetter();
+                }
                 // Getting the peer lazily is fine as the native call is guaranteed
                 // not to be disposed before user-supplied server side handler returns.
                 // Most users won't need to read this field anyway.
@@ -197,6 +204,10 @@ namespace Grpc.Core
         {
             get
             {
+                if (testingOnlyAuthContextGetter != null)
+                {
+                    return testingOnlyAuthContextGetter();
+                }
                 return authContext.Value;
             }
         }
@@ -213,7 +224,7 @@ namespace Grpc.Core
     /// <summary>
     /// Allows sharing write options between ServerCallContext and other objects.
     /// </summary>
-    public interface IHasWriteOptions
+    internal interface IHasWriteOptions
     {
         /// <summary>
         /// Gets or sets the write options.

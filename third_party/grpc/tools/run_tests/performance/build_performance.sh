@@ -1,37 +1,22 @@
 #!/bin/bash
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 source ~/.rvm/scripts/rvm
 set -ex
 
-cd $(dirname $0)/../../..
+cd "$(dirname "$0")/../../.."
 
 CONFIG=${CONFIG:-opt}
 
@@ -40,13 +25,20 @@ CONFIG=${CONFIG:-opt}
 # TODO(jtattermusch): C++ worker and driver are not buildable on Windows yet
 if [ "$OSTYPE" != "msys" ]
 then
-  # TODO(jtattermusch): not embedding OpenSSL breaks the C# build because
-  # grpc_csharp_ext needs OpenSSL embedded and some intermediate files from
-  # this build will be reused.
-  make CONFIG=${CONFIG} EMBED_OPENSSL=true EMBED_ZLIB=true qps_worker qps_json_driver -j8
+  # build C++ with cmake as building with "make" disables boringssl assembly
+  # optimizations that can have huge impact on secure channel throughput.
+  mkdir -p cmake/build
+  cd cmake/build
+  cmake -DgRPC_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release ../..
+  make qps_worker qps_json_driver -j8
+  cd ../..
+  # unbreak subsequent make builds by restoring zconf.h (previously renamed by cmake build)
+  # See https://github.com/grpc/grpc/issues/11581
+  (cd third_party/zlib; git checkout zconf.h)
 fi
 
-for language in $@
+PHP_ALREADY_BUILT=""
+for language in "$@"
 do
   case "$language" in
   "c++")
@@ -58,11 +50,29 @@ do
   "go")
     tools/run_tests/performance/build_performance_go.sh
     ;;
+  "php7"|"php7_protobuf_c")
+    if [ -n "$PHP_ALREADY_BUILT" ]; then
+      echo "Skipping PHP build as already built by $PHP_ALREADY_BUILT"
+    else
+      PHP_ALREADY_BUILT=$language
+      tools/run_tests/performance/build_performance_php7.sh
+    fi
+    ;;
   "csharp")
-    python tools/run_tests/run_tests.py -l $language -c $CONFIG --build_only -j 8 --compiler coreclr
+    python tools/run_tests/run_tests.py -l "$language" -c "$CONFIG" --build_only -j 8
+    # unbreak subsequent make builds by restoring zconf.h (previously renamed by cmake portion of C#'s build)
+    # See https://github.com/grpc/grpc/issues/11581
+    (cd third_party/zlib; git checkout zconf.h)
+    ;;
+  "node"|"node_purejs")
+    tools/run_tests/performance/build_performance_node.sh
+    ;;
+  "python")
+    # python workers are only run with python2.7 and building with multiple python versions is costly
+    python tools/run_tests/run_tests.py -l "$language" -c "$CONFIG" --compiler python2.7 --build_only -j 8
     ;;
   *)
-    python tools/run_tests/run_tests.py -l $language -c $CONFIG --build_only -j 8
+    python tools/run_tests/run_tests.py -l "$language" -c "$CONFIG" --build_only -j 8
     ;;
   esac
 done

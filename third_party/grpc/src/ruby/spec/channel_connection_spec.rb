@@ -1,68 +1,25 @@
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+require 'spec_helper'
+require 'timeout'
 
-require 'grpc'
-
-# A test message
-class EchoMsg
-  def self.marshal(_o)
-    ''
-  end
-
-  def self.unmarshal(_o)
-    EchoMsg.new
-  end
-end
-
-# A test service with an echo implementation.
-class EchoService
-  include GRPC::GenericService
-  rpc :an_rpc, EchoMsg, EchoMsg
-  attr_reader :received_md
-
-  def initialize(**kw)
-    @trailing_metadata = kw
-    @received_md = []
-  end
-
-  def an_rpc(req, call)
-    GRPC.logger.info('echo service received a request')
-    call.output_metadata.update(@trailing_metadata)
-    @received_md << call.metadata unless call.metadata.nil?
-    req
-  end
-end
-
-EchoStub = EchoService.rpc_stub_class
+include Timeout
+include GRPC::Core
+include GRPC::Spec::Helpers
 
 def start_server(port = 0)
-  @srv = GRPC::RpcServer.new
+  @srv = new_rpc_server_for_testing(pool_size: 1)
   server_port = @srv.add_http2_port("localhost:#{port}", :this_port_is_insecure)
   @srv.handle(EchoService)
   @server_thd = Thread.new { @srv.run }
@@ -137,5 +94,33 @@ describe 'channel connection behavior' do
     expect(state).to be(GRPC::Core::ConnectivityStates::READY)
 
     stop_server
+  end
+
+  it 'concurrent watches on the same channel' do
+    timeout(180) do
+      port = start_server
+      ch = GRPC::Core::Channel.new("localhost:#{port}", {},
+                                   :this_channel_is_insecure)
+      stop_server
+
+      thds = []
+      50.times do
+        thds << Thread.new do
+          while ch.connectivity_state(true) != ConnectivityStates::READY
+            ch.watch_connectivity_state(
+              ConnectivityStates::READY, Time.now + 60)
+            break
+          end
+        end
+      end
+
+      sleep 0.01
+
+      start_server(port)
+
+      thds.each(&:join)
+
+      stop_server
+    end
   end
 end

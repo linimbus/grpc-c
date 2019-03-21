@@ -232,6 +232,7 @@ GenerateSerializedSizeCode(io::Printer* printer) const {
     "}\n");
 }
 
+
 // ===================================================================
 
 ImmutableLazyMessageOneofFieldLiteGenerator::
@@ -415,6 +416,7 @@ GenerateSerializedSizeCode(io::Printer* printer) const {
     "}\n");
 }
 
+
 // ===================================================================
 
 RepeatedImmutableLazyMessageFieldLiteGenerator::
@@ -446,8 +448,7 @@ GenerateMembers(io::Printer* printer) const {
     "  for (com.google.protobuf.LazyFieldLite lf : $name$_) {\n"
     "    list.add(($type$) lf.getValue($type$.getDefaultInstance()));\n"
     "  }\n"
-    // TODO(dweis): Make this list immutable?
-    "  return list;\n"
+    "  return java.util.Collections.unmodifiableList(list);\n"
     "}\n");
   WriteFieldDocComment(printer, descriptor_);
   printer->Print(variables_,
@@ -716,6 +717,7 @@ GenerateSerializedSizeCode(io::Printer* printer) const {
     "    .computeLazyFieldSize($number$, $name$_.get(i));\n"
     "}\n");
 }
+
 
 }  // namespace java
 }  // namespace compiler

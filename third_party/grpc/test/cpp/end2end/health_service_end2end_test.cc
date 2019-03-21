@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -36,17 +21,16 @@
 #include <thread>
 #include <vector>
 
-#include <grpc++/channel.h>
-#include <grpc++/client_context.h>
-#include <grpc++/create_channel.h>
-#include <grpc++/ext/health_check_service_server_builder_option.h>
-#include <grpc++/health_check_service_interface.h>
-#include <grpc++/server.h>
-#include <grpc++/server_builder.h>
-#include <grpc++/server_context.h>
 #include <grpc/grpc.h>
 #include <grpc/support/log.h>
-#include <gtest/gtest.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/client_context.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/ext/health_check_service_server_builder_option.h>
+#include <grpcpp/health_check_service_interface.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
 
 #include "src/proto/grpc/health/v1/health.grpc.pb.h"
 #include "src/proto/grpc/testing/duplicate/echo_duplicate.grpc.pb.h"
@@ -54,6 +38,8 @@
 #include "test/core/util/port.h"
 #include "test/core/util/test_config.h"
 #include "test/cpp/end2end/test_service_impl.h"
+
+#include <gtest/gtest.h>
 
 using grpc::health::v1::Health;
 using grpc::health::v1::HealthCheckRequest;
@@ -75,6 +61,29 @@ class HealthCheckServiceImpl : public ::grpc::health::v1::Health::Service {
       return Status(StatusCode::NOT_FOUND, "");
     }
     response->set_status(iter->second);
+    return Status::OK;
+  }
+
+  Status Watch(ServerContext* context, const HealthCheckRequest* request,
+               ::grpc::ServerWriter<HealthCheckResponse>* writer) override {
+    auto last_state = HealthCheckResponse::UNKNOWN;
+    while (!context->IsCancelled()) {
+      {
+        std::lock_guard<std::mutex> lock(mu_);
+        HealthCheckResponse response;
+        auto iter = status_map_.find(request->service());
+        if (iter == status_map_.end()) {
+          response.set_status(response.SERVICE_UNKNOWN);
+        } else {
+          response.set_status(iter->second);
+        }
+        if (response.status() != last_state) {
+          writer->Write(response, ::grpc::WriteOptions());
+        }
+      }
+      gpr_sleep_until(gpr_time_add(gpr_now(GPR_CLOCK_MONOTONIC),
+                                   gpr_time_from_millis(1000, GPR_TIMESPAN)));
+    }
     return Status::OK;
   }
 
@@ -119,14 +128,6 @@ class CustomHealthCheckService : public HealthCheckServiceInterface {
  private:
   HealthCheckServiceImpl* impl_;  // not owned
 };
-
-void LoopCompletionQueue(ServerCompletionQueue* cq) {
-  void* tag;
-  bool ok;
-  while (cq->Next(&tag, &ok)) {
-    abort();  // Nothing should come out of the cq.
-  }
-}
 
 class HealthServiceEnd2endTest : public ::testing::Test {
  protected:
@@ -232,6 +233,33 @@ class HealthServiceEnd2endTest : public ::testing::Test {
                        Status(StatusCode::NOT_FOUND, ""));
   }
 
+  void VerifyHealthCheckServiceStreaming() {
+    const grpc::string kServiceName("service_name");
+    HealthCheckServiceInterface* service = server_->GetHealthCheckService();
+    // Start Watch for service.
+    ClientContext context;
+    HealthCheckRequest request;
+    request.set_service(kServiceName);
+    std::unique_ptr<::grpc::ClientReaderInterface<HealthCheckResponse>> reader =
+        hc_stub_->Watch(&context, request);
+    // Initial response will be SERVICE_UNKNOWN.
+    HealthCheckResponse response;
+    EXPECT_TRUE(reader->Read(&response));
+    EXPECT_EQ(response.SERVICE_UNKNOWN, response.status());
+    response.Clear();
+    // Now set service to NOT_SERVING and make sure we get an update.
+    service->SetServingStatus(kServiceName, false);
+    EXPECT_TRUE(reader->Read(&response));
+    EXPECT_EQ(response.NOT_SERVING, response.status());
+    response.Clear();
+    // Now set service to SERVING and make sure we get another update.
+    service->SetServingStatus(kServiceName, true);
+    EXPECT_TRUE(reader->Read(&response));
+    EXPECT_EQ(response.SERVING, response.status());
+    // Finish call.
+    context.TryCancel();
+  }
+
   TestServiceImpl echo_test_service_;
   HealthCheckServiceImpl health_check_service_impl_;
   std::unique_ptr<Health::Stub> hc_stub_;
@@ -259,27 +287,12 @@ TEST_F(HealthServiceEnd2endTest, DefaultHealthService) {
   EXPECT_TRUE(DefaultHealthCheckServiceEnabled());
   SetUpServer(true, false, false, nullptr);
   VerifyHealthCheckService();
+  VerifyHealthCheckServiceStreaming();
 
   // The default service has a size limit of the service name.
   const grpc::string kTooLongServiceName(201, 'x');
   SendHealthCheckRpc(kTooLongServiceName,
                      Status(StatusCode::INVALID_ARGUMENT, ""));
-}
-
-// The server has no sync service.
-TEST_F(HealthServiceEnd2endTest, DefaultHealthServiceAsyncOnly) {
-  EnableDefaultHealthCheckService(true);
-  EXPECT_TRUE(DefaultHealthCheckServiceEnabled());
-  SetUpServer(false, true, false, nullptr);
-  cq_thread_ = std::thread(LoopCompletionQueue, cq_.get());
-
-  HealthCheckServiceInterface* default_service =
-      server_->GetHealthCheckService();
-  EXPECT_TRUE(default_service == nullptr);
-
-  ResetStubs();
-
-  SendHealthCheckRpc("", Status(StatusCode::UNIMPLEMENTED, ""));
 }
 
 // Provide an empty service to disable the default service.
@@ -310,6 +323,7 @@ TEST_F(HealthServiceEnd2endTest, ExplicitlyOverride) {
   ResetStubs();
 
   VerifyHealthCheckService();
+  VerifyHealthCheckServiceStreaming();
 }
 
 }  // namespace

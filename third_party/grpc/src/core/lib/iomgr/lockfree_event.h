@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2017, Google Inc.
- * All rights reserved.
+ * Copyright 2017 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -36,19 +21,52 @@
 
 /* Lock free event notification for file descriptors */
 
+#include <grpc/support/port_platform.h>
+
 #include <grpc/support/atm.h>
 
-#include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/closure.h"
 
-void grpc_lfev_init(gpr_atm *state);
-void grpc_lfev_destroy(gpr_atm *state);
-bool grpc_lfev_is_shutdown(gpr_atm *state);
+namespace grpc_core {
 
-void grpc_lfev_notify_on(grpc_exec_ctx *exec_ctx, gpr_atm *state,
-                         grpc_closure *closure);
-/* Returns true on first successful shutdown */
-bool grpc_lfev_set_shutdown(grpc_exec_ctx *exec_ctx, gpr_atm *state,
-                            grpc_error *shutdown_err);
-void grpc_lfev_set_ready(grpc_exec_ctx *exec_ctx, gpr_atm *state);
+class LockfreeEvent {
+ public:
+  LockfreeEvent();
+
+  LockfreeEvent(const LockfreeEvent&) = delete;
+  LockfreeEvent& operator=(const LockfreeEvent&) = delete;
+
+  // These methods are used to initialize and destroy the internal state. These
+  // cannot be done in constructor and destructor because SetReady may be called
+  // when the event is destroyed and put in a freelist.
+  void InitEvent();
+  void DestroyEvent();
+
+  // Returns true if fd has been shutdown, false otherwise.
+  bool IsShutdown() const {
+    return (gpr_atm_no_barrier_load(&state_) & kShutdownBit) != 0;
+  }
+
+  // Schedules \a closure when the event is received (see SetReady()) or the
+  // shutdown state has been set. Note that the event may have already been
+  // received, in which case the closure would be scheduled immediately.
+  // If the shutdown state has already been set, then \a closure is scheduled
+  // with the shutdown error.
+  void NotifyOn(grpc_closure* closure);
+
+  // Sets the shutdown state. If a closure had been provided by NotifyOn and has
+  // not yet been scheduled, it will be scheduled with \a error.
+  bool SetShutdown(grpc_error* error);
+
+  // Signals that the event has been received.
+  void SetReady();
+
+ private:
+  enum State { kClosureNotReady = 0, kClosureReady = 2, kShutdownBit = 1 };
+
+  gpr_atm state_;
+};
+
+}  // namespace grpc_core
 
 #endif /* GRPC_CORE_LIB_IOMGR_LOCKFREE_EVENT_H */

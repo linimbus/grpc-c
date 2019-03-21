@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *is % allowed in string
  */
 
@@ -38,10 +23,10 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <grpc++/create_channel.h>
-#include <grpc++/grpc++.h>
 #include <grpc/support/log.h>
 #include <grpc/support/time.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/grpcpp.h>
 
 #include "src/proto/grpc/testing/metrics.grpc.pb.h"
 #include "src/proto/grpc/testing/metrics.pb.h"
@@ -51,9 +36,7 @@
 #include "test/cpp/util/metrics_server.h"
 #include "test/cpp/util/test_config.h"
 
-extern "C" {
 extern void gpr_default_log(gpr_log_func_args* args);
-}
 
 DEFINE_int32(metrics_port, 8081, "The metrics server port.");
 
@@ -116,18 +99,24 @@ DEFINE_bool(do_not_abort_on_transient_failures, true,
 
 // Options from client.cc (for compatibility with interop test).
 // TODO(sreek): Consolidate overlapping options
+DEFINE_bool(use_alts, false,
+            "Whether to use alts. Enable alts will disable tls.");
 DEFINE_bool(use_tls, false, "Whether to use tls.");
 DEFINE_bool(use_test_ca, false, "False to use SSL roots for google");
 DEFINE_string(server_host_override, "foo.test.google.fr",
               "Override the server host which is sent in HTTP header");
 
-using grpc::testing::kTestCaseList;
+using grpc::testing::ALTS;
+using grpc::testing::INSECURE;
 using grpc::testing::MetricsService;
 using grpc::testing::MetricsServiceImpl;
 using grpc::testing::StressTestInteropClient;
+using grpc::testing::TLS;
 using grpc::testing::TestCaseType;
 using grpc::testing::UNKNOWN_TEST;
 using grpc::testing::WeightedRandomTestSelector;
+using grpc::testing::kTestCaseList;
+using grpc::testing::transport_security;
 
 static int log_level = GPR_LOG_SEVERITY_DEBUG;
 
@@ -245,7 +234,7 @@ int main(int argc, char** argv) {
   log_level = FLAGS_log_level;
   gpr_set_log_function(TestLogFunction);
 
-  srand(time(NULL));
+  srand(time(nullptr));
 
   // Parse the server addresses
   std::vector<grpc::string> server_addresses;
@@ -272,6 +261,7 @@ int main(int argc, char** argv) {
   gpr_log(GPR_INFO, "Starting test(s)..");
 
   std::vector<std::thread> test_threads;
+  std::vector<std::unique_ptr<StressTestInteropClient>> clients;
 
   // Create and start the test threads.
   // Note that:
@@ -284,6 +274,8 @@ int main(int argc, char** argv) {
   int thread_idx = 0;
   int server_idx = -1;
   char buffer[256];
+  transport_security security_type =
+      FLAGS_use_alts ? ALTS : (FLAGS_use_tls ? TLS : INSECURE);
   for (auto it = server_addresses.begin(); it != server_addresses.end(); it++) {
     ++server_idx;
     // Create channel(s) for each server
@@ -291,15 +283,20 @@ int main(int argc, char** argv) {
          channel_idx++) {
       gpr_log(GPR_INFO, "Starting test with %s channel_idx=%d..", it->c_str(),
               channel_idx);
-      std::shared_ptr<grpc::Channel> channel = grpc::CreateTestChannel(
-          *it, FLAGS_server_host_override, FLAGS_use_tls, !FLAGS_use_test_ca);
+      grpc::testing::ChannelCreationFunc channel_creation_func = std::bind(
+          static_cast<std::shared_ptr<grpc::Channel> (*)(
+              const grpc::string&, const grpc::string&,
+              grpc::testing::transport_security, bool)>(
+              grpc::CreateTestChannel),
+          *it, FLAGS_server_host_override, security_type, !FLAGS_use_test_ca);
 
       // Create stub(s) for each channel
       for (int stub_idx = 0; stub_idx < FLAGS_num_stubs_per_channel;
            stub_idx++) {
-        StressTestInteropClient* client = new StressTestInteropClient(
-            ++thread_idx, *it, channel, test_selector, FLAGS_test_duration_secs,
-            FLAGS_sleep_duration_ms, FLAGS_do_not_abort_on_transient_failures);
+        clients.emplace_back(new StressTestInteropClient(
+            ++thread_idx, *it, channel_creation_func, test_selector,
+            FLAGS_test_duration_secs, FLAGS_sleep_duration_ms,
+            FLAGS_do_not_abort_on_transient_failures));
 
         bool is_already_created = false;
         // QpsGauge name
@@ -308,7 +305,7 @@ int main(int argc, char** argv) {
                       server_idx, channel_idx, stub_idx);
 
         test_threads.emplace_back(std::thread(
-            &StressTestInteropClient::MainLoop, client,
+            &StressTestInteropClient::MainLoop, clients.back().get(),
             metrics_service.CreateQpsGauge(buffer, &is_already_created)));
 
         // The QpsGauge should not have been already created

@@ -1,31 +1,16 @@
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Provides distutils command classes for the gRPC Python setup process."""
 
 from distutils import errors as _errors
@@ -82,55 +67,6 @@ class GatherProto(setuptools.Command):
             open(path, 'a').close()
 
 
-class BuildProtoModules(setuptools.Command):
-    """Command to generate project *_pb2.py modules from proto files."""
-
-    description = 'build protobuf modules'
-    user_options = [
-        ('include=', None, 'path patterns to include in protobuf generation'),
-        ('exclude=', None, 'path patterns to exclude from protobuf generation')
-    ]
-
-    def initialize_options(self):
-        self.exclude = None
-        self.include = r'.*\.proto$'
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import grpc_tools.protoc as protoc
-
-        include_regex = re.compile(self.include)
-        exclude_regex = re.compile(self.exclude) if self.exclude else None
-        paths = []
-        for walk_root, directories, filenames in os.walk(PROTO_STEM):
-            for filename in filenames:
-                path = os.path.join(walk_root, filename)
-                if include_regex.match(path) and not (
-                        exclude_regex and exclude_regex.match(path)):
-                    paths.append(path)
-
-        # TODO(kpayson): It would be nice to do this in a batch command,
-        # but we currently have name conflicts in src/proto
-        for path in paths:
-            command = [
-                'grpc_tools.protoc',
-                '-I {}'.format(PROTO_STEM),
-                '--python_out={}'.format(PROTO_STEM),
-                '--grpc_python_out={}'.format(PROTO_STEM),
-            ] + [path]
-            if protoc.main(command) != 0:
-                sys.stderr.write(
-                    'warning: Command:\n{}\nFailed'.format(command))
-
-        # Generated proto directories dont include __init__.py, but
-        # these are needed for python package resolution
-        for walk_root, _, _ in os.walk(PROTO_STEM):
-            path = os.path.join(walk_root, '__init__.py')
-            open(path, 'a').close()
-
-
 class BuildPy(build_py.build_py):
     """Custom project build command."""
 
@@ -170,6 +106,63 @@ class TestLite(setuptools.Command):
         """Fetch install and test requirements"""
         self.distribution.fetch_build_eggs(self.distribution.install_requires)
         self.distribution.fetch_build_eggs(self.distribution.tests_require)
+
+
+class TestGevent(setuptools.Command):
+    """Command to run tests w/gevent."""
+
+    BANNED_TESTS = (
+        # These tests send a lot of RPCs and are really slow on gevent.  They will
+        # eventually succeed, but need to dig into performance issues.
+        'unit._cython._no_messages_server_completion_queue_per_call_test.Test.test_rpcs',
+        'unit._cython._no_messages_single_server_completion_queue_test.Test.test_rpcs',
+        # TODO(https://github.com/grpc/grpc/issues/16890) enable this test
+        'unit._cython._channel_test.ChannelTest.test_multiple_channels_lonely_connectivity',
+        # I have no idea why this doesn't work in gevent, but it shouldn't even be
+        # using the c-core
+        'testing._client_test.ClientTest.test_infinite_request_stream_real_time',
+        # TODO(https://github.com/grpc/grpc/issues/15743) enable this test
+        'unit._session_cache_test.SSLSessionCacheTest.testSSLSessionCacheLRU',
+        # TODO(https://github.com/grpc/grpc/issues/14789) enable this test
+        'unit._server_ssl_cert_config_test',
+        # TODO(https://github.com/grpc/grpc/issues/14901) enable this test
+        'protoc_plugin._python_plugin_test.PythonPluginTest',
+        # Beta API is unsupported for gevent
+        'protoc_plugin.beta_python_plugin_test',
+        'unit.beta._beta_features_test',
+        # TODO(https://github.com/grpc/grpc/issues/15411) unpin gevent version
+        # This test will stuck while running higher version of gevent
+        'unit._auth_context_test.AuthContextTest.testSessionResumption')
+    description = 'run tests with gevent.  Assumes grpc/gevent are installed'
+    user_options = []
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        # distutils requires this override.
+        pass
+
+    def run(self):
+        from gevent import monkey
+        monkey.patch_all()
+
+        import tests
+
+        import grpc.experimental.gevent
+        grpc.experimental.gevent.init_gevent()
+
+        import gevent
+
+        import tests
+        loader = tests.Loader()
+        loader.loadTestsFromNames(['tests'])
+        runner = tests.Runner()
+        runner.skip_tests(self.BANNED_TESTS)
+        result = gevent.spawn(runner.run, loader.suite)
+        result.join()
+        if not result.value.wasSuccessful():
+            sys.exit('Test failure')
 
 
 class RunInterop(test.test):
@@ -213,3 +206,28 @@ class RunInterop(test.test):
         from tests.interop import client
         sys.argv[1:] = self.args.split()
         client.test_interoperability()
+
+
+class RunFork(test.test):
+
+    description = 'run fork test client'
+    user_options = [('args=', 'a', 'pass-thru arguments for the client')]
+
+    def initialize_options(self):
+        self.args = ''
+
+    def finalize_options(self):
+        # distutils requires this override.
+        pass
+
+    def run(self):
+        if self.distribution.install_requires:
+            self.distribution.fetch_build_eggs(
+                self.distribution.install_requires)
+        if self.distribution.tests_require:
+            self.distribution.fetch_build_eggs(self.distribution.tests_require)
+        # We import here to ensure that our setuptools parent has had a chance to
+        # edit the Python system path.
+        from tests.fork import client
+        sys.argv[1:] = self.args.split()
+        client.test_fork()

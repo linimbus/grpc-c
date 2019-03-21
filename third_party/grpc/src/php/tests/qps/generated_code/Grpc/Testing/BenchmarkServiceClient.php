@@ -2,48 +2,35 @@
 // GENERATED CODE -- DO NOT EDIT!
 
 // Original file comments:
-// Copyright 2015, Google Inc.
-// All rights reserved.
+// Copyright 2015 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // An integration test service that covers all the method signature permutations
 // of unary/streaming requests/responses.
-namespace Grpc\Testing {
+namespace Grpc\Testing;
 
-  class BenchmarkServiceClient extends \Grpc\BaseStub {
+/**
+ */
+class BenchmarkServiceClient extends \Grpc\BaseStub {
 
     /**
      * @param string $hostname hostname
      * @param array $opts channel options
-     * @param Grpc\Channel $channel (optional) re-use channel object
+     * @param \Grpc\Channel $channel (optional) re-use channel object
      */
     public function __construct($hostname, $opts, $channel = null) {
-      parent::__construct($hostname, $opts, $channel);
+        parent::__construct($hostname, $opts, $channel);
     }
 
     /**
@@ -55,24 +42,62 @@ namespace Grpc\Testing {
      */
     public function UnaryCall(\Grpc\Testing\SimpleRequest $argument,
       $metadata = [], $options = []) {
-      return $this->_simpleRequest('/grpc.testing.BenchmarkService/UnaryCall',
-      $argument,
-      ['\Grpc\Testing\SimpleResponse', 'decode'],
-      $metadata, $options);
+        return $this->_simpleRequest('/grpc.testing.BenchmarkService/UnaryCall',
+        $argument,
+        ['\Grpc\Testing\SimpleResponse', 'decode'],
+        $metadata, $options);
     }
 
     /**
-     * One request followed by one response.
-     * The server returns the client payload as-is.
+     * Repeated sequence of one request followed by one response.
+     * Should be called streaming ping-pong
+     * The server returns the client payload as-is on each response
      * @param array $metadata metadata
      * @param array $options call options
      */
     public function StreamingCall($metadata = [], $options = []) {
-      return $this->_bidiRequest('/grpc.testing.BenchmarkService/StreamingCall',
-      ['\Grpc\Testing\SimpleResponse','decode'],
-      $metadata, $options);
+        return $this->_bidiRequest('/grpc.testing.BenchmarkService/StreamingCall',
+        ['\Grpc\Testing\SimpleResponse','decode'],
+        $metadata, $options);
     }
 
-  }
+    /**
+     * Single-sided unbounded streaming from client to server
+     * The server returns the client payload as-is once the client does WritesDone
+     * @param array $metadata metadata
+     * @param array $options call options
+     */
+    public function StreamingFromClient($metadata = [], $options = []) {
+        return $this->_clientStreamRequest('/grpc.testing.BenchmarkService/StreamingFromClient',
+        ['\Grpc\Testing\SimpleResponse','decode'],
+        $metadata, $options);
+    }
+
+    /**
+     * Single-sided unbounded streaming from server to client
+     * The server repeatedly returns the client payload as-is
+     * @param \Grpc\Testing\SimpleRequest $argument input argument
+     * @param array $metadata metadata
+     * @param array $options call options
+     */
+    public function StreamingFromServer(\Grpc\Testing\SimpleRequest $argument,
+      $metadata = [], $options = []) {
+        return $this->_serverStreamRequest('/grpc.testing.BenchmarkService/StreamingFromServer',
+        $argument,
+        ['\Grpc\Testing\SimpleResponse', 'decode'],
+        $metadata, $options);
+    }
+
+    /**
+     * Two-sided unbounded streaming between server to client
+     * Both sides send the content of their own choice to the other
+     * @param array $metadata metadata
+     * @param array $options call options
+     */
+    public function StreamingBothWays($metadata = [], $options = []) {
+        return $this->_bidiRequest('/grpc.testing.BenchmarkService/StreamingBothWays',
+        ['\Grpc\Testing\SimpleResponse','decode'],
+        $metadata, $options);
+    }
 
 }

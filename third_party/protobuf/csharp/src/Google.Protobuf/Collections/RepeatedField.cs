@@ -47,7 +47,11 @@ namespace Google.Protobuf.Collections
     /// </remarks>
     /// <typeparam name="T">The element type of the repeated field.</typeparam>
     public sealed class RepeatedField<T> : IList<T>, IList, IDeepCloneable<RepeatedField<T>>, IEquatable<RepeatedField<T>>
+#if !NET35
+        , IReadOnlyList<T>
+#endif
     {
+        private static readonly EqualityComparer<T> EqualityComparer = ProtobufEqualityComparers.GetEqualityComparer<T>();
         private static readonly T[] EmptyArray = new T[0];
         private const int MinArraySize = 8;
 
@@ -431,7 +435,7 @@ namespace Google.Protobuf.Collections
             {
                 return false;
             }
-            EqualityComparer<T> comparer = EqualityComparer<T>.Default;
+            EqualityComparer<T> comparer = EqualityComparer;
             for (int i = 0; i < count; i++)
             {
                 if (!comparer.Equals(array[i], other.array[i]))
@@ -451,7 +455,7 @@ namespace Google.Protobuf.Collections
         public int IndexOf(T item)
         {
             ProtoPreconditions.CheckNotNullUnconstrained(item, nameof(item));
-            EqualityComparer<T> comparer = EqualityComparer<T>.Default;
+            EqualityComparer<T> comparer = EqualityComparer;
             for (int i = 0; i < count; i++)
             {
                 if (comparer.Equals(array[i], item))

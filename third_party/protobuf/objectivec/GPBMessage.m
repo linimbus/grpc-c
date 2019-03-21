@@ -32,6 +32,7 @@
 
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <stdatomic.h>
 
 #import "GPBArray_PackagePrivate.h"
 #import "GPBCodedInputStream_PackagePrivate.h"
@@ -77,6 +78,20 @@ static NSString *const kGPBDataCoderKey = @"GPBData";
   GPBMessage *autocreator_;
   GPBFieldDescriptor *autocreatorField_;
   GPBExtensionDescriptor *autocreatorExtension_;
+
+  // A lock to provide mutual exclusion from internal data that can be modified
+  // by *read* operations such as getters (autocreation of message fields and
+  // message extensions, not setting of values). Used to guarantee thread safety
+  // for concurrent reads on the message.
+  // NOTE: OSSpinLock may seem like a good fit here but Apple engineers have
+  // pointed out that they are vulnerable to live locking on iOS in cases of
+  // priority inversion:
+  //   http://mjtsai.com/blog/2015/12/16/osspinlock-is-unsafe/
+  //   https://lists.swift.org/pipermail/swift-dev/Week-of-Mon-20151214/000372.html
+  // Use of readOnlySemaphore_ must be prefaced by a call to
+  // GPBPrepareReadOnlySemaphore to ensure it has been created. This allows
+  // readOnlySemaphore_ to be only created when actually needed.
+  _Atomic(dispatch_semaphore_t) readOnlySemaphore_;
 }
 @end
 
@@ -130,7 +145,7 @@ static NSError *ErrorFromException(NSException *exception) {
 
 static void CheckExtension(GPBMessage *self,
                            GPBExtensionDescriptor *extension) {
-  if ([self class] != extension.containingMessageClass) {
+  if (![self isKindOfClass:extension.containingMessageClass]) {
     [NSException
          raise:NSInvalidArgumentException
         format:@"Extension %@ used on wrong class (%@ instead of %@)",
@@ -738,6 +753,31 @@ void GPBClearMessageAutocreator(GPBMessage *self) {
   self->autocreatorExtension_ = nil;
 }
 
+// Call this before using the readOnlySemaphore_. This ensures it is created only once.
+void GPBPrepareReadOnlySemaphore(GPBMessage *self) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdirect-ivar-access"
+
+  // Create the semaphore on demand (rather than init) as developers might not cause them
+  // to be needed, and the heap usage can add up.  The atomic swap is used to avoid needing
+  // another lock around creating it.
+  if (self->readOnlySemaphore_ == nil) {
+    dispatch_semaphore_t worker = dispatch_semaphore_create(1);
+    dispatch_semaphore_t expected = nil;
+    if (!atomic_compare_exchange_strong(&self->readOnlySemaphore_, &expected, worker)) {
+      dispatch_release(worker);
+    }
+#if defined(__clang_analyzer__)
+    // The Xcode 9.2 (and 9.3 beta) static analyzer thinks worker is leaked
+    // (doesn't seem to know about atomic_compare_exchange_strong); so just
+    // for the analyzer, let it think worker is also released in this case.
+    else { dispatch_release(worker); }
+#endif
+  }
+
+#pragma clang diagnostic pop
+}
+
 static GPBUnknownFieldSet *GetOrMakeUnknownFields(GPBMessage *self) {
   if (!self->unknownFields_) {
     self->unknownFields_ = [[GPBUnknownFieldSet alloc] init];
@@ -950,7 +990,8 @@ static GPBUnknownFieldSet *GetOrMakeUnknownFields(GPBMessage *self) {
               newValue = [value copyWithZone:zone];
             }
           } else {
-            if (field.mapKeyDataType == GPBDataTypeString) {
+            if ((field.mapKeyDataType == GPBDataTypeString) &&
+                GPBFieldDataTypeIsObject(field)) {
               // NSDictionary
               newValue = [value mutableCopyWithZone:zone];
             } else {
@@ -1023,9 +1064,11 @@ static GPBUnknownFieldSet *GetOrMakeUnknownFields(GPBMessage *self) {
       if (arrayOrMap) {
         if (field.fieldType == GPBFieldTypeRepeated) {
           if (GPBFieldDataTypeIsObject(field)) {
-            GPBAutocreatedArray *autoArray = arrayOrMap;
-            if (autoArray->_autocreator == self) {
-              autoArray->_autocreator = nil;
+            if ([arrayOrMap isKindOfClass:[GPBAutocreatedArray class]]) {
+              GPBAutocreatedArray *autoArray = arrayOrMap;
+              if (autoArray->_autocreator == self) {
+                autoArray->_autocreator = nil;
+              }
             }
           } else {
             // Type doesn't matter, it is a GPB*Array.
@@ -1037,9 +1080,11 @@ static GPBUnknownFieldSet *GetOrMakeUnknownFields(GPBMessage *self) {
         } else {
           if ((field.mapKeyDataType == GPBDataTypeString) &&
               GPBFieldDataTypeIsObject(field)) {
-            GPBAutocreatedDictionary *autoDict = arrayOrMap;
-            if (autoDict->_autocreator == self) {
-              autoDict->_autocreator = nil;
+            if ([arrayOrMap isKindOfClass:[GPBAutocreatedDictionary class]]) {
+              GPBAutocreatedDictionary *autoDict = arrayOrMap;
+              if (autoDict->_autocreator == self) {
+                autoDict->_autocreator = nil;
+              }
             }
           } else {
             // Type doesn't matter, it is a GPB*Dictionary.
@@ -2003,7 +2048,12 @@ static GPBUnknownFieldSet *GetOrMakeUnknownFields(GPBMessage *self) {
       [newInput release];
     } else {
       GPBUnknownFieldSet *unknownFields = GetOrMakeUnknownFields(self);
-      [unknownFields mergeMessageSetMessage:typeId data:rawBytes];
+      // rawBytes was created via a NoCopy, so it can be reusing a
+      // subrange of another NSData that might go out of scope as things
+      // unwind, so a copy is needed to ensure what is saved in the
+      // unknown fields stays valid.
+      NSData *cloned = [NSData dataWithData:rawBytes];
+      [unknownFields mergeMessageSetMessage:typeId data:cloned];
     }
   }
 }
@@ -2349,17 +2399,11 @@ static void MergeRepeatedNotPackedFieldFromCodedInputStream(
         // zero signals EOF / limit reached
         return;
       } else {
-        if (GPBPreserveUnknownFields(syntax)) {
-          if (![self parseUnknownField:input
-                     extensionRegistry:extensionRegistry
-                                   tag:tag]) {
-            // it's an endgroup tag
-            return;
-          }
-        } else {
-          if (![input skipField:tag]) {
-            return;
-          }
+        if (![self parseUnknownField:input
+                   extensionRegistry:extensionRegistry
+                                 tag:tag]) {
+          // it's an endgroup tag
+          return;
         }
       }
     }  // if(!merged)
@@ -2574,13 +2618,14 @@ static void MergeRepeatedNotPackedFieldFromCodedInputStream(
   if (other == self) {
     return YES;
   }
-  if (![other isKindOfClass:[self class]] &&
-      ![self isKindOfClass:[other class]]) {
+  if (![other isKindOfClass:[GPBMessage class]]) {
     return NO;
   }
-
   GPBMessage *otherMsg = other;
   GPBDescriptor *descriptor = [[self class] descriptor];
+  if ([[otherMsg class] descriptor] != descriptor) {
+    return NO;
+  }
   uint8_t *selfStorage = (uint8_t *)messageStorage_;
   uint8_t *otherStorage = (uint8_t *)otherMsg->messageStorage_;
 
@@ -2980,7 +3025,10 @@ typedef struct ResolveIvarAccessorMethodResult {
   SEL encodingSelector;
 } ResolveIvarAccessorMethodResult;
 
-static void ResolveIvarGet(GPBFieldDescriptor *field,
+// |field| can be __unsafe_unretained because they are created at startup
+// and are essentially global. No need to pay for retain/release when
+// they are captured in blocks.
+static void ResolveIvarGet(__unsafe_unretained GPBFieldDescriptor *field,
                            ResolveIvarAccessorMethodResult *result) {
   GPBDataType fieldDataType = GPBGetFieldDataType(field);
   switch (fieldDataType) {
@@ -3022,7 +3070,8 @@ static void ResolveIvarGet(GPBFieldDescriptor *field,
   }
 }
 
-static void ResolveIvarSet(GPBFieldDescriptor *field,
+// See comment about __unsafe_unretained on ResolveIvarGet.
+static void ResolveIvarSet(__unsafe_unretained GPBFieldDescriptor *field,
                            GPBFileSyntax syntax,
                            ResolveIvarAccessorMethodResult *result) {
   GPBDataType fieldDataType = GPBGetFieldDataType(field);
@@ -3060,15 +3109,16 @@ static void ResolveIvarSet(GPBFieldDescriptor *field,
 + (BOOL)resolveInstanceMethod:(SEL)sel {
   const GPBDescriptor *descriptor = [self descriptor];
   if (!descriptor) {
-    return NO;
+    return [super resolveInstanceMethod:sel];
   }
 
   // NOTE: hasOrCountSel_/setHasSel_ will be NULL if the field for the given
   // message should not have has support (done in GPBDescriptor.m), so there is
   // no need for checks here to see if has*/setHas* are allowed.
-
   ResolveIvarAccessorMethodResult result = {NULL, NULL};
-  for (GPBFieldDescriptor *field in descriptor->fields_) {
+
+  // See comment about __unsafe_unretained on ResolveIvarGet.
+  for (__unsafe_unretained GPBFieldDescriptor *field in descriptor->fields_) {
     BOOL isMapOrArray = GPBFieldIsMapOrArray(field);
     if (!isMapOrArray) {
       // Single fields.
@@ -3148,8 +3198,17 @@ static void ResolveIvarSet(GPBFieldDescriptor *field,
   if (result.impToAdd) {
     const char *encoding =
         GPBMessageEncodingForSelector(result.encodingSelector, YES);
-    BOOL methodAdded = class_addMethod(descriptor.messageClass, sel,
-                                       result.impToAdd, encoding);
+    Class msgClass = descriptor.messageClass;
+    BOOL methodAdded = class_addMethod(msgClass, sel, result.impToAdd, encoding);
+    // class_addMethod() is documented as also failing if the method was already
+    // added; so we check if the method is already there and return success so
+    // the method dispatch will still happen.  Why would it already be added?
+    // Two threads could cause the same method to be bound at the same time,
+    // but only one will actually bind it; the other still needs to return true
+    // so things will dispatch.
+    if (!methodAdded) {
+      methodAdded = GPBClassHasSel(msgClass, sel);
+    }
     return methodAdded;
   }
   return [super resolveInstanceMethod:sel];
@@ -3157,7 +3216,7 @@ static void ResolveIvarSet(GPBFieldDescriptor *field,
 
 + (BOOL)resolveClassMethod:(SEL)sel {
   // Extensions scoped to a Message and looked up via class methods.
-  if (GPBResolveExtensionClassMethod(self, sel)) {
+  if (GPBResolveExtensionClassMethod([self descriptor].messageClass, sel)) {
     return YES;
   }
   return [super resolveClassMethod:sel];
@@ -3225,6 +3284,34 @@ id GPBGetMessageMapField(GPBMessage *self, GPBFieldDescriptor *field) {
   GPBDescriptor *descriptor = [[self class] descriptor];
   GPBFileSyntax syntax = descriptor.file.syntax;
   return GetOrCreateMapIvarWithField(self, field, syntax);
+}
+
+id GPBGetObjectIvarWithField(GPBMessage *self, GPBFieldDescriptor *field) {
+  NSCAssert(!GPBFieldIsMapOrArray(field), @"Shouldn't get here");
+  if (GPBGetHasIvarField(self, field)) {
+    uint8_t *storage = (uint8_t *)self->messageStorage_;
+    id *typePtr = (id *)&storage[field->description_->offset];
+    return *typePtr;
+  }
+  // Not set...
+
+  // Non messages (string/data), get their default.
+  if (!GPBFieldDataTypeIsMessage(field)) {
+    return field.defaultValue.valueMessage;
+  }
+
+  GPBPrepareReadOnlySemaphore(self);
+  dispatch_semaphore_wait(self->readOnlySemaphore_, DISPATCH_TIME_FOREVER);
+  GPBMessage *result = GPBGetObjectIvarWithFieldNoAutocreate(self, field);
+  if (!result) {
+    // For non repeated messages, create the object, set it and return it.
+    // This object will not initially be visible via GPBGetHasIvar, so
+    // we save its creator so it can become visible if it's mutated later.
+    result = GPBCreateMessageWithAutocreator(field.msgClass, self, field);
+    GPBSetAutocreatedRetainedObjectIvarWithField(self, field, result);
+  }
+  dispatch_semaphore_signal(self->readOnlySemaphore_);
+  return result;
 }
 
 #pragma clang diagnostic pop

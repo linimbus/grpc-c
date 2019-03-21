@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2017, Google Inc.
- * All rights reserved.
+ * Copyright 2017 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -36,12 +21,11 @@
 #include <benchmark/benchmark.h>
 #include <grpc/grpc.h>
 
-extern "C" {
 #include "src/core/lib/transport/metadata.h"
 #include "src/core/lib/transport/static_metadata.h"
-}
 
 #include "test/cpp/microbenchmarks/helpers.h"
+#include "test/cpp/util/test_config.h"
 
 auto& force_library_initialization = Library::get();
 
@@ -107,11 +91,11 @@ static void BM_MetadataFromNonInternedSlices(benchmark::State& state) {
   TrackCounters track_counters;
   gpr_slice k = grpc_slice_from_static_string("key");
   gpr_slice v = grpc_slice_from_static_string("value");
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataFromNonInternedSlices);
@@ -120,11 +104,11 @@ static void BM_MetadataFromInternedSlices(benchmark::State& state) {
   TrackCounters track_counters;
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_intern(grpc_slice_from_static_string("value"));
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   grpc_slice_unref(v);
   track_counters.Finish(state);
@@ -136,13 +120,13 @@ static void BM_MetadataFromInternedSlicesAlreadyInIndex(
   TrackCounters track_counters;
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_intern(grpc_slice_from_static_string("value"));
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
-  grpc_mdelem seed = grpc_mdelem_create(&exec_ctx, k, v, NULL);
+  grpc_core::ExecCtx exec_ctx;
+  grpc_mdelem seed = grpc_mdelem_create(k, v, nullptr);
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  GRPC_MDELEM_UNREF(&exec_ctx, seed);
-  grpc_exec_ctx_finish(&exec_ctx);
+  GRPC_MDELEM_UNREF(seed);
+
   grpc_slice_unref(k);
   grpc_slice_unref(v);
   track_counters.Finish(state);
@@ -153,11 +137,11 @@ static void BM_MetadataFromInternedKey(benchmark::State& state) {
   TrackCounters track_counters;
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_from_static_string("value");
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   track_counters.Finish(state);
 }
@@ -169,14 +153,12 @@ static void BM_MetadataFromNonInternedSlicesWithBackingStore(
   gpr_slice k = grpc_slice_from_static_string("key");
   gpr_slice v = grpc_slice_from_static_string("value");
   char backing_store[sizeof(grpc_mdelem_data)];
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(
-        &exec_ctx,
-        grpc_mdelem_create(&exec_ctx, k, v,
-                           reinterpret_cast<grpc_mdelem_data*>(backing_store)));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(
+        k, v, reinterpret_cast<grpc_mdelem_data*>(backing_store)));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataFromNonInternedSlicesWithBackingStore);
@@ -187,14 +169,12 @@ static void BM_MetadataFromInternedSlicesWithBackingStore(
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_intern(grpc_slice_from_static_string("value"));
   char backing_store[sizeof(grpc_mdelem_data)];
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(
-        &exec_ctx,
-        grpc_mdelem_create(&exec_ctx, k, v,
-                           reinterpret_cast<grpc_mdelem_data*>(backing_store)));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(
+        k, v, reinterpret_cast<grpc_mdelem_data*>(backing_store)));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   grpc_slice_unref(v);
   track_counters.Finish(state);
@@ -207,14 +187,12 @@ static void BM_MetadataFromInternedKeyWithBackingStore(
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_from_static_string("value");
   char backing_store[sizeof(grpc_mdelem_data)];
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(
-        &exec_ctx,
-        grpc_mdelem_create(&exec_ctx, k, v,
-                           reinterpret_cast<grpc_mdelem_data*>(backing_store)));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(
+        k, v, reinterpret_cast<grpc_mdelem_data*>(backing_store)));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   track_counters.Finish(state);
 }
@@ -224,11 +202,11 @@ static void BM_MetadataFromStaticMetadataStrings(benchmark::State& state) {
   TrackCounters track_counters;
   gpr_slice k = GRPC_MDSTR_STATUS;
   gpr_slice v = GRPC_MDSTR_200;
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   track_counters.Finish(state);
 }
@@ -239,11 +217,11 @@ static void BM_MetadataFromStaticMetadataStringsNotIndexed(
   TrackCounters track_counters;
   gpr_slice k = GRPC_MDSTR_STATUS;
   gpr_slice v = GRPC_MDSTR_GZIP;
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, grpc_mdelem_create(&exec_ctx, k, v, NULL));
+    GRPC_MDELEM_UNREF(grpc_mdelem_create(k, v, nullptr));
   }
-  grpc_exec_ctx_finish(&exec_ctx);
+
   grpc_slice_unref(k);
   track_counters.Finish(state);
 }
@@ -252,16 +230,15 @@ BENCHMARK(BM_MetadataFromStaticMetadataStringsNotIndexed);
 static void BM_MetadataRefUnrefExternal(benchmark::State& state) {
   TrackCounters track_counters;
   char backing_store[sizeof(grpc_mdelem_data)];
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
-  grpc_mdelem el =
-      grpc_mdelem_create(&exec_ctx, grpc_slice_from_static_string("a"),
-                         grpc_slice_from_static_string("b"),
-                         reinterpret_cast<grpc_mdelem_data*>(backing_store));
+  grpc_core::ExecCtx exec_ctx;
+  grpc_mdelem el = grpc_mdelem_create(
+      grpc_slice_from_static_string("a"), grpc_slice_from_static_string("b"),
+      reinterpret_cast<grpc_mdelem_data*>(backing_store));
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, GRPC_MDELEM_REF(el));
+    GRPC_MDELEM_UNREF(GRPC_MDELEM_REF(el));
   }
-  GRPC_MDELEM_UNREF(&exec_ctx, el);
-  grpc_exec_ctx_finish(&exec_ctx);
+  GRPC_MDELEM_UNREF(el);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataRefUnrefExternal);
@@ -269,49 +246,60 @@ BENCHMARK(BM_MetadataRefUnrefExternal);
 static void BM_MetadataRefUnrefInterned(benchmark::State& state) {
   TrackCounters track_counters;
   char backing_store[sizeof(grpc_mdelem_data)];
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   gpr_slice k = grpc_slice_intern(grpc_slice_from_static_string("key"));
   gpr_slice v = grpc_slice_intern(grpc_slice_from_static_string("value"));
   grpc_mdelem el = grpc_mdelem_create(
-      &exec_ctx, k, v, reinterpret_cast<grpc_mdelem_data*>(backing_store));
+      k, v, reinterpret_cast<grpc_mdelem_data*>(backing_store));
   grpc_slice_unref(k);
   grpc_slice_unref(v);
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, GRPC_MDELEM_REF(el));
+    GRPC_MDELEM_UNREF(GRPC_MDELEM_REF(el));
   }
-  GRPC_MDELEM_UNREF(&exec_ctx, el);
-  grpc_exec_ctx_finish(&exec_ctx);
+  GRPC_MDELEM_UNREF(el);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataRefUnrefInterned);
 
 static void BM_MetadataRefUnrefAllocated(benchmark::State& state) {
   TrackCounters track_counters;
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   grpc_mdelem el =
-      grpc_mdelem_create(&exec_ctx, grpc_slice_from_static_string("a"),
-                         grpc_slice_from_static_string("b"), NULL);
+      grpc_mdelem_create(grpc_slice_from_static_string("a"),
+                         grpc_slice_from_static_string("b"), nullptr);
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, GRPC_MDELEM_REF(el));
+    GRPC_MDELEM_UNREF(GRPC_MDELEM_REF(el));
   }
-  GRPC_MDELEM_UNREF(&exec_ctx, el);
-  grpc_exec_ctx_finish(&exec_ctx);
+  GRPC_MDELEM_UNREF(el);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataRefUnrefAllocated);
 
 static void BM_MetadataRefUnrefStatic(benchmark::State& state) {
   TrackCounters track_counters;
-  grpc_exec_ctx exec_ctx = GRPC_EXEC_CTX_INIT;
+  grpc_core::ExecCtx exec_ctx;
   grpc_mdelem el =
-      grpc_mdelem_create(&exec_ctx, GRPC_MDSTR_STATUS, GRPC_MDSTR_200, NULL);
+      grpc_mdelem_create(GRPC_MDSTR_STATUS, GRPC_MDSTR_200, nullptr);
   while (state.KeepRunning()) {
-    GRPC_MDELEM_UNREF(&exec_ctx, GRPC_MDELEM_REF(el));
+    GRPC_MDELEM_UNREF(GRPC_MDELEM_REF(el));
   }
-  GRPC_MDELEM_UNREF(&exec_ctx, el);
-  grpc_exec_ctx_finish(&exec_ctx);
+  GRPC_MDELEM_UNREF(el);
+
   track_counters.Finish(state);
 }
 BENCHMARK(BM_MetadataRefUnrefStatic);
 
-BENCHMARK_MAIN();
+// Some distros have RunSpecifiedBenchmarks under the benchmark namespace,
+// and others do not. This allows us to support both modes.
+namespace benchmark {
+void RunTheBenchmarksNamespaced() { RunSpecifiedBenchmarks(); }
+}  // namespace benchmark
+
+int main(int argc, char** argv) {
+  ::benchmark::Initialize(&argc, argv);
+  ::grpc::testing::InitTest(&argc, &argv, false);
+  benchmark::RunTheBenchmarksNamespaced();
+  return 0;
+}

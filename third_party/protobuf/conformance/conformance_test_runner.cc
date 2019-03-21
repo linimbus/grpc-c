@@ -68,7 +68,6 @@
 
 using conformance::ConformanceRequest;
 using conformance::ConformanceResponse;
-using google::protobuf::internal::scoped_array;
 using google::protobuf::StringAppendF;
 using std::string;
 using std::vector;
@@ -183,7 +182,7 @@ class ForkPipeRunner : public google::protobuf::ConformanceTestRunner {
       CHECK_SYSCALL(close(toproc_pipe_fd[1]));
       CHECK_SYSCALL(close(fromproc_pipe_fd[0]));
 
-      scoped_array<char> executable(new char[executable_.size() + 1]);
+      std::unique_ptr<char[]> executable(new char[executable_.size() + 1]);
       memcpy(executable.get(), executable_.c_str(), executable_.size());
       executable[executable_.size()] = '\0';
 
@@ -251,10 +250,20 @@ void UsageError() {
           "                              should contain one test name per\n");
   fprintf(stderr,
           "                              line.  Use '#' for comments.\n");
+  fprintf(stderr,
+          "  --enforce_recommended       Enforce that recommended test\n");
+  fprintf(stderr,
+          "                              cases are also passing. Specify\n");
+  fprintf(stderr,
+          "                              this flag if you want to be\n");
+  fprintf(stderr,
+          "                              strictly conforming to protobuf\n");
+  fprintf(stderr,
+          "                              spec.\n");
   exit(1);
 }
 
-void ParseFailureList(const char *filename, vector<string>* failure_list) {
+void ParseFailureList(const char *filename, std::vector<string>* failure_list) {
   std::ifstream infile(filename);
 
   if (!infile.is_open()) {
@@ -281,7 +290,7 @@ int main(int argc, char *argv[]) {
   google::protobuf::ConformanceTestSuite suite;
 
   string failure_list_filename;
-  vector<string> failure_list;
+  std::vector<string> failure_list;
 
   for (int arg = 1; arg < argc; ++arg) {
     if (strcmp(argv[arg], "--failure_list") == 0) {
@@ -290,6 +299,8 @@ int main(int argc, char *argv[]) {
       ParseFailureList(argv[arg], &failure_list);
     } else if (strcmp(argv[arg], "--verbose") == 0) {
       suite.SetVerbose(true);
+    } else if (strcmp(argv[arg], "--enforce_recommended") == 0) {
+      suite.SetEnforceRecommended(true);
     } else if (argv[arg][0] == '-') {
       fprintf(stderr, "Unknown option: %s\n", argv[arg]);
       UsageError();

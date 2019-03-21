@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2017, Google Inc.
- * All rights reserved.
+ * Copyright 2017 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -39,27 +24,28 @@
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 #include "test/cpp/microbenchmarks/helpers.h"
+#include "test/cpp/util/test_config.h"
 
-extern "C" {
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/port.h"
 #include "src/core/lib/surface/completion_queue.h"
-}
 
 struct grpc_pollset {
   gpr_mu mu;
 };
 
+static gpr_mu g_mu;
+static gpr_cv g_cv;
+static int g_threads_active;
+static bool g_active;
+
 namespace grpc {
 namespace testing {
-
-static void* g_tag = (void*)(intptr_t)10;  // Some random number
 static grpc_completion_queue* g_cq;
 static grpc_event_engine_vtable g_vtable;
 
-static void pollset_shutdown(grpc_exec_ctx* exec_ctx, grpc_pollset* ps,
-                             grpc_closure* closure) {
-  grpc_closure_sched(exec_ctx, closure, GRPC_ERROR_NONE);
+static void pollset_shutdown(grpc_pollset* ps, grpc_closure* closure) {
+  GRPC_CLOSURE_SCHED(closure, GRPC_ERROR_NONE);
 }
 
 static void pollset_init(grpc_pollset* ps, gpr_mu** mu) {
@@ -74,25 +60,32 @@ static grpc_error* pollset_kick(grpc_pollset* p, grpc_pollset_worker* worker) {
 }
 
 /* Callback when the tag is dequeued from the completion queue. Does nothing */
-static void cq_done_cb(grpc_exec_ctx* exec_ctx, void* done_arg,
-                       grpc_cq_completion* cq_completion) {
+static void cq_done_cb(void* done_arg, grpc_cq_completion* cq_completion) {
   gpr_free(cq_completion);
 }
 
-/* Queues a completion tag. ZERO polling overhead */
-static grpc_error* pollset_work(grpc_exec_ctx* exec_ctx, grpc_pollset* ps,
-                                grpc_pollset_worker** worker, gpr_timespec now,
-                                gpr_timespec deadline) {
+/* Queues a completion tag if deadline is > 0.
+ * Does nothing if deadline is 0 (i.e gpr_time_0(GPR_CLOCK_MONOTONIC)) */
+static grpc_error* pollset_work(grpc_pollset* ps, grpc_pollset_worker** worker,
+                                grpc_millis deadline) {
+  if (deadline == 0) {
+    gpr_log(GPR_DEBUG, "no-op");
+    return GRPC_ERROR_NONE;
+  }
+
   gpr_mu_unlock(&ps->mu);
-  grpc_cq_begin_op(g_cq, g_tag);
-  grpc_cq_end_op(exec_ctx, g_cq, g_tag, GRPC_ERROR_NONE, cq_done_cb, NULL,
-                 (grpc_cq_completion*)gpr_malloc(sizeof(grpc_cq_completion)));
-  grpc_exec_ctx_flush(exec_ctx);
+
+  void* tag = (void*)static_cast<intptr_t>(10);  // Some random number
+  GPR_ASSERT(grpc_cq_begin_op(g_cq, tag));
+  grpc_cq_end_op(
+      g_cq, tag, GRPC_ERROR_NONE, cq_done_cb, nullptr,
+      static_cast<grpc_cq_completion*>(gpr_malloc(sizeof(grpc_cq_completion))));
+  grpc_core::ExecCtx::Get()->Flush();
   gpr_mu_lock(&ps->mu);
   return GRPC_ERROR_NONE;
 }
 
-static void init_engine_vtable() {
+static const grpc_event_engine_vtable* init_engine_vtable(bool) {
   memset(&g_vtable, 0, sizeof(g_vtable));
 
   g_vtable.pollset_size = sizeof(grpc_pollset);
@@ -101,19 +94,39 @@ static void init_engine_vtable() {
   g_vtable.pollset_destroy = pollset_destroy;
   g_vtable.pollset_work = pollset_work;
   g_vtable.pollset_kick = pollset_kick;
+  g_vtable.shutdown_engine = [] {};
+
+  return &g_vtable;
 }
 
 static void setup() {
-  grpc_init();
-  init_engine_vtable();
-  grpc_set_event_engine_test_only(&g_vtable);
+  // This test should only ever be run with a non or any polling engine
+  // Override the polling engine for the non-polling engine
+  // and add a custom polling engine
+  grpc_register_event_engine_factory("none", init_engine_vtable, false);
+  grpc_register_event_engine_factory("bm_cq_multiple_threads",
+                                     init_engine_vtable, true);
 
-  g_cq = grpc_completion_queue_create(NULL);
+  grpc_init();
+  GPR_ASSERT(strcmp(grpc_get_poll_strategy_name(), "none") == 0 ||
+             strcmp(grpc_get_poll_strategy_name(), "bm_cq_multiple_threads") ==
+                 0);
+
+  g_cq = grpc_completion_queue_create_for_next(nullptr);
 }
 
 static void teardown() {
   grpc_completion_queue_shutdown(g_cq);
+
+  /* Drain any events */
+  gpr_timespec deadline = gpr_time_0(GPR_CLOCK_MONOTONIC);
+  while (grpc_completion_queue_next(g_cq, deadline, nullptr).type !=
+         GRPC_QUEUE_SHUTDOWN) {
+    /* Do nothing */
+  }
+
   grpc_completion_queue_destroy(g_cq);
+  grpc_shutdown();
 }
 
 /* A few notes about Multi-threaded benchmarks:
@@ -129,27 +142,57 @@ static void teardown() {
   code (i.e the code between two successive calls of state.KeepRunning()) if
   state.KeepRunning() returns false. So it is safe to do the teardown in one
   of the threads after state.keepRunning() returns false.
+
+ However, our use requires synchronization because we do additional work at
+ each thread that requires specific ordering (TrackCounters must be constructed
+ after grpc_init because it needs the number of cores, initialized by grpc,
+ and its Finish call must take place before grpc_shutdown so that it can use
+ grpc_stats).
 */
 static void BM_Cq_Throughput(benchmark::State& state) {
-  TrackCounters track_counters;
   gpr_timespec deadline = gpr_inf_future(GPR_CLOCK_MONOTONIC);
+  auto thd_idx = state.thread_index;
 
-  if (state.thread_index == 0) {
+  gpr_mu_lock(&g_mu);
+  g_threads_active++;
+  if (thd_idx == 0) {
     setup();
+    g_active = true;
+    gpr_cv_broadcast(&g_cv);
+  } else {
+    while (!g_active) {
+      gpr_cv_wait(&g_cv, &g_mu, deadline);
+    }
   }
+  gpr_mu_unlock(&g_mu);
+
+  // Use a TrackCounters object to monitor the gRPC performance statistics
+  // (optionally including low-level counters) before and after the test
+  TrackCounters track_counters;
 
   while (state.KeepRunning()) {
-    GPR_ASSERT(grpc_completion_queue_next(g_cq, deadline, NULL).type ==
+    GPR_ASSERT(grpc_completion_queue_next(g_cq, deadline, nullptr).type ==
                GRPC_OP_COMPLETE);
   }
 
   state.SetItemsProcessed(state.iterations());
-
-  if (state.thread_index == 0) {
-    teardown();
-  }
-
   track_counters.Finish(state);
+
+  gpr_mu_lock(&g_mu);
+  g_threads_active--;
+  if (g_threads_active == 0) {
+    gpr_cv_broadcast(&g_cv);
+  } else {
+    while (g_threads_active > 0) {
+      gpr_cv_wait(&g_cv, &g_mu, deadline);
+    }
+  }
+  gpr_mu_unlock(&g_mu);
+
+  if (thd_idx == 0) {
+    teardown();
+    g_active = false;
+  }
 }
 
 BENCHMARK(BM_Cq_Throughput)->ThreadRange(1, 16)->UseRealTime();
@@ -157,4 +200,17 @@ BENCHMARK(BM_Cq_Throughput)->ThreadRange(1, 16)->UseRealTime();
 }  // namespace testing
 }  // namespace grpc
 
-BENCHMARK_MAIN();
+// Some distros have RunSpecifiedBenchmarks under the benchmark namespace,
+// and others do not. This allows us to support both modes.
+namespace benchmark {
+void RunTheBenchmarksNamespaced() { RunSpecifiedBenchmarks(); }
+}  // namespace benchmark
+
+int main(int argc, char** argv) {
+  gpr_mu_init(&g_mu);
+  gpr_cv_init(&g_cv);
+  ::benchmark::Initialize(&argc, argv);
+  ::grpc::testing::InitTest(&argc, &argv, false);
+  benchmark::RunTheBenchmarksNamespaced();
+  return 0;
+}

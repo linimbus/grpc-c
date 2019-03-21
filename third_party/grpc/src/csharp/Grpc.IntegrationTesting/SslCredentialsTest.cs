@@ -1,33 +1,18 @@
 #region Copyright notice and license
 
-// Copyright 2015-2016, Google Inc.
-// All rights reserved.
+// Copyright 2015-2016 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #endregion
 
@@ -52,20 +37,24 @@ namespace Grpc.IntegrationTesting
     public class SslCredentialsTest
     {
         const string Host = "localhost";
+        const string IsPeerAuthenticatedMetadataKey = "test_only_is_peer_authenticated";
         Server server;
         Channel channel;
         TestService.TestServiceClient client;
 
-        [TestFixtureSetUp]
-        public void Init()
+        string rootCert;
+        KeyCertificatePair keyCertPair;
+
+        public void InitClientAndServer(bool clientAddKeyCertPair,
+                SslClientCertificateRequestType clientCertRequestType)
         {
-            var rootCert = File.ReadAllText(TestCredentials.ClientCertAuthorityPath);
-            var keyCertPair = new KeyCertificatePair(
+            rootCert = File.ReadAllText(TestCredentials.ClientCertAuthorityPath);
+            keyCertPair = new KeyCertificatePair(
                 File.ReadAllText(TestCredentials.ServerCertChainPath),
                 File.ReadAllText(TestCredentials.ServerPrivateKeyPath));
 
-            var serverCredentials = new SslServerCredentials(new[] { keyCertPair }, rootCert, true);
-            var clientCredentials = new SslCredentials(rootCert, keyCertPair);
+            var serverCredentials = new SslServerCredentials(new[] { keyCertPair }, rootCert, clientCertRequestType);
+            var clientCredentials = clientAddKeyCertPair ? new SslCredentials(rootCert, keyCertPair) : new SslCredentials(rootCert);
 
             // Disable SO_REUSEPORT to prevent https://github.com/grpc/grpc/issues/10755
             server = new Server(new[] { new ChannelOption(ChannelOptions.SoReuseport, 0) })
@@ -84,22 +73,136 @@ namespace Grpc.IntegrationTesting
             client = new TestService.TestServiceClient(channel);
         }
 
-        [TestFixtureTearDown]
+        [OneTimeTearDown]
         public void Cleanup()
         {
-            channel.ShutdownAsync().Wait();
-            server.ShutdownAsync().Wait();
+            if (channel != null)
+            {
+                channel.ShutdownAsync().Wait();
+            }
+            if (server != null)
+            {
+                server.ShutdownAsync().Wait();
+            }
         }
 
         [Test]
-        public void AuthenticatedClientAndServer()
+        public async Task NoClientCert_DontRequestClientCertificate_Accepted()
         {
-            var response = client.UnaryCall(new SimpleRequest { ResponseSize = 10 });
-            Assert.AreEqual(10, response.Payload.Body.Length);
+            InitClientAndServer(
+                clientAddKeyCertPair: false,
+                clientCertRequestType: SslClientCertificateRequestType.DontRequest);
+
+            await CheckAccepted(expectPeerAuthenticated: false);
         }
 
         [Test]
-        public async Task AuthContextIsPopulated()
+        public async Task ClientWithCert_DontRequestClientCertificate_AcceptedButPeerNotAuthenticated()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: true,
+                clientCertRequestType: SslClientCertificateRequestType.DontRequest);
+
+            await CheckAccepted(expectPeerAuthenticated: false);
+        }
+
+        [Test]
+        public async Task NoClientCert_RequestClientCertificateButDontVerify_Accepted()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: false,
+                clientCertRequestType: SslClientCertificateRequestType.RequestButDontVerify);
+
+            await CheckAccepted(expectPeerAuthenticated: false);
+        }
+
+        [Test]
+        public async Task NoClientCert_RequestClientCertificateAndVerify_Accepted()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: false,
+                clientCertRequestType: SslClientCertificateRequestType.RequestAndVerify);
+
+            await CheckAccepted(expectPeerAuthenticated: false);
+        }
+
+        [Test]
+        public async Task ClientWithCert_RequestAndRequireClientCertificateButDontVerify_Accepted()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: true,
+                clientCertRequestType: SslClientCertificateRequestType.RequestAndRequireButDontVerify);
+
+            await CheckAccepted(expectPeerAuthenticated: true);
+            await CheckAuthContextIsPopulated();
+        }
+
+        [Test]
+        public async Task ClientWithCert_RequestAndRequireClientCertificateAndVerify_Accepted()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: true,
+                clientCertRequestType: SslClientCertificateRequestType.RequestAndRequireAndVerify);
+
+            await CheckAccepted(expectPeerAuthenticated: true);
+            await CheckAuthContextIsPopulated();
+        }
+
+        [Test]
+        public void NoClientCert_RequestAndRequireClientCertificateButDontVerify_Rejected()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: false,
+                clientCertRequestType: SslClientCertificateRequestType.RequestAndRequireButDontVerify);
+
+            CheckRejected();
+        }
+
+        [Test]
+        public void NoClientCert_RequestAndRequireClientCertificateAndVerify_Rejected()
+        {
+            InitClientAndServer(
+                clientAddKeyCertPair: false,
+                clientCertRequestType: SslClientCertificateRequestType.RequestAndRequireAndVerify);
+
+            CheckRejected();
+        }
+
+        [Test]
+        public void Constructor_LegacyForceClientAuth()
+        {
+            var creds = new SslServerCredentials(new[] { keyCertPair }, rootCert, true);
+            Assert.AreEqual(SslClientCertificateRequestType.RequestAndRequireAndVerify, creds.ClientCertificateRequest);
+
+            var creds2 = new SslServerCredentials(new[] { keyCertPair }, rootCert, false);
+            Assert.AreEqual(SslClientCertificateRequestType.DontRequest, creds2.ClientCertificateRequest);
+        }
+
+        [Test]
+        public void Constructor_NullRootCerts()
+        {
+            var keyCertPairs = new[] { keyCertPair };
+            Assert.DoesNotThrow(() => new SslServerCredentials(keyCertPairs, null, SslClientCertificateRequestType.DontRequest));
+            Assert.DoesNotThrow(() => new SslServerCredentials(keyCertPairs, null, SslClientCertificateRequestType.RequestAndVerify));
+            Assert.DoesNotThrow(() => new SslServerCredentials(keyCertPairs, null, SslClientCertificateRequestType.RequestAndRequireButDontVerify));
+            Assert.Throws(typeof(ArgumentNullException), () => new SslServerCredentials(keyCertPairs, null, SslClientCertificateRequestType.RequestAndRequireAndVerify));
+        }
+
+        private async Task CheckAccepted(bool expectPeerAuthenticated)
+        {
+            var call = client.UnaryCallAsync(new SimpleRequest { ResponseSize = 10 });
+            var response = await call;
+            Assert.AreEqual(10, response.Payload.Body.Length);
+            Assert.AreEqual(expectPeerAuthenticated.ToString(), call.GetTrailers().First((entry) => entry.Key == IsPeerAuthenticatedMetadataKey).Value);
+        }
+
+        private void CheckRejected()
+        {
+            var ex = Assert.Throws<RpcException>(() => client.UnaryCall(new SimpleRequest { ResponseSize = 10 }));
+            Assert.AreEqual(StatusCode.Unavailable, ex.Status.StatusCode);
+        }
+
+        private async Task CheckAuthContextIsPopulated()
         {
             var call = client.StreamingInputCall();
             await call.RequestStream.CompleteAsync();
@@ -109,15 +212,16 @@ namespace Grpc.IntegrationTesting
 
         private class SslCredentialsTestServiceImpl : TestService.TestServiceBase
         {
-            public override async Task<SimpleResponse> UnaryCall(SimpleRequest request, ServerCallContext context)
+            public override Task<SimpleResponse> UnaryCall(SimpleRequest request, ServerCallContext context)
             {
-                return new SimpleResponse { Payload = CreateZerosPayload(request.ResponseSize) };
+                context.ResponseTrailers.Add(IsPeerAuthenticatedMetadataKey, context.AuthContext.IsPeerAuthenticated.ToString());
+                return Task.FromResult(new SimpleResponse { Payload = CreateZerosPayload(request.ResponseSize) });
             }
 
             public override async Task<StreamingInputCallResponse> StreamingInputCall(IAsyncStreamReader<StreamingInputCallRequest> requestStream, ServerCallContext context)
             {
                 var authContext = context.AuthContext;
-                await requestStream.ForEachAsync(async request => {});
+                await requestStream.ForEachAsync(request => TaskUtils.CompletedTask);
 
                 Assert.IsTrue(authContext.IsPeerAuthenticated);
                 Assert.AreEqual("x509_subject_alternative_name", authContext.PeerIdentityPropertyName);

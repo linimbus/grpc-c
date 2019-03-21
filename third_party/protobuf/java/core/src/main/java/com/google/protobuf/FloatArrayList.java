@@ -30,8 +30,9 @@
 
 package com.google.protobuf;
 
-import com.google.protobuf.Internal.FloatList;
+import static com.google.protobuf.Internal.checkNotNull;
 
+import com.google.protobuf.Internal.FloatList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.RandomAccess;
@@ -41,9 +42,8 @@ import java.util.RandomAccess;
  *
  * @author dweis@google.com (Daniel Weis)
  */
-final class FloatArrayList
-    extends AbstractProtobufList<Float>
-    implements FloatList, RandomAccess {
+final class FloatArrayList extends AbstractProtobufList<Float>
+    implements FloatList, RandomAccess, PrimitiveNonBoxingCollection {
 
   private static final FloatArrayList EMPTY_LIST = new FloatArrayList();
   static {
@@ -79,6 +79,18 @@ final class FloatArrayList
   private FloatArrayList(float[] other, int size) {
     array = other;
     this.size = size;
+  }
+
+  @Override
+  protected void removeRange(int fromIndex, int toIndex) {
+    ensureIsMutable();
+    if (toIndex < fromIndex) {
+      throw new IndexOutOfBoundsException("toIndex < fromIndex");
+    }
+
+    System.arraycopy(array, toIndex, array, fromIndex, size - toIndex);
+    size -= (toIndex - fromIndex);
+    modCount++;
   }
 
   @Override
@@ -198,9 +210,7 @@ final class FloatArrayList
   public boolean addAll(Collection<? extends Float> collection) {
     ensureIsMutable();
 
-    if (collection == null) {
-      throw new NullPointerException();
-    }
+    checkNotNull(collection);
 
     // We specialize when adding another FloatArrayList to avoid boxing elements.
     if (!(collection instanceof FloatArrayList)) {
@@ -248,7 +258,9 @@ final class FloatArrayList
     ensureIsMutable();
     ensureIndexInRange(index);
     float value = array[index];
-    System.arraycopy(array, index + 1, array, index, size - index);
+    if (index < size - 1) {
+      System.arraycopy(array, index + 1, array, index, size - index);
+    }
     size--;
     modCount++;
     return value;

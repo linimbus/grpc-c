@@ -1,33 +1,18 @@
 #!/usr/bin/env ruby
 
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # Sample app that accesses a Calc service running on a Ruby gRPC server and
 # helps validate RpcServer as a gRPC server using proto2 serialization.
@@ -42,15 +27,26 @@ $LOAD_PATH.unshift(this_dir) unless $LOAD_PATH.include?(this_dir)
 require 'grpc'
 require 'math_services_pb'
 require 'optparse'
+require 'logger'
 
 include GRPC::Core::TimeConsts
+
+module StdoutLogger
+  def logger
+    LOGGER
+  end
+
+  LOGGER = Logger.new(STDOUT)
+end
+
+GRPC.extend(StdoutLogger)
 
 def do_div(stub)
   GRPC.logger.info('request_response')
   GRPC.logger.info('----------------')
   req = Math::DivArgs.new(dividend: 7, divisor: 3)
   GRPC.logger.info("div(7/3): req=#{req.inspect}")
-  resp = stub.div(req, timeout: INFINITE_FUTURE)
+  resp = stub.div(req)
   GRPC.logger.info("Answer: #{resp.inspect}")
   GRPC.logger.info('----------------')
 end
@@ -71,7 +67,7 @@ def do_fib(stub)
   GRPC.logger.info('----------------')
   req = Math::FibArgs.new(limit: 11)
   GRPC.logger.info("fib(11): req=#{req.inspect}")
-  resp = stub.fib(req, timeout: INFINITE_FUTURE)
+  resp = stub.fib(req)
   resp.each do |r|
     GRPC.logger.info("Answer: #{r.inspect}")
   end
@@ -86,7 +82,7 @@ def do_div_many(stub)
   reqs << Math::DivArgs.new(dividend: 5, divisor: 2)
   reqs << Math::DivArgs.new(dividend: 7, divisor: 2)
   GRPC.logger.info("div(7/3), div(5/2), div(7/2): reqs=#{reqs.inspect}")
-  resp = stub.div_many(reqs, timeout: INFINITE_FUTURE)
+  resp = stub.div_many(reqs)
   resp.each do |r|
     GRPC.logger.info("Answer: #{r.inspect}")
   end
@@ -122,19 +118,16 @@ def main
 
   # The Math::Math:: module occurs because the service has the same name as its
   # package. That practice should be avoided by defining real services.
-
-  p options
   if options['secure']
     stub_opts = {
       :creds => test_creds,
-      GRPC::Core::Channel::SSL_TARGET => 'foo.test.google.fr'
+      GRPC::Core::Channel::SSL_TARGET => 'foo.test.google.fr',
+      timeout: INFINITE_FUTURE,
     }
-    p stub_opts
-    p options['host']
     stub = Math::Math::Stub.new(options['host'], **stub_opts)
     GRPC.logger.info("... connecting securely on #{options['host']}")
   else
-    stub = Math::Math::Stub.new(options['host'])
+    stub = Math::Math::Stub.new(options['host'], :this_channel_is_insecure, timeout: INFINITE_FUTURE)
     GRPC.logger.info("... connecting insecurely on #{options['host']}")
   end
 

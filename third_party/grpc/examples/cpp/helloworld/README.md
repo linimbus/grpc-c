@@ -1,8 +1,8 @@
 # gRPC C++ Hello World Tutorial
 
 ### Install gRPC
-Make sure you have installed gRPC on your system. Follow the instructions here:
-[https://github.com/grpc/grpc/blob/master/INSTALL](../../../INSTALL.md).
+Make sure you have installed gRPC on your system. Follow the
+[BUILDING.md](../../../BUILDING.md) instructions.
 
 ### Get the tutorial source code
 
@@ -12,7 +12,7 @@ following command:
 
 
 ```sh
-$ git clone -b $(curl -L http://grpc.io/release) https://github.com/grpc/grpc
+$ git clone -b $(curl -L https://grpc.io/release) https://github.com/grpc/grpc
 ```
 
 Change your current directory to examples/cpp/helloworld

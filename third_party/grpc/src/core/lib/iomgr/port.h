@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -36,22 +21,27 @@
 #ifndef GRPC_CORE_LIB_IOMGR_PORT_H
 #define GRPC_CORE_LIB_IOMGR_PORT_H
 
-#if defined(GRPC_UV)
-// Do nothing
+#ifdef GRPC_UV
+#ifndef GRPC_CUSTOM_SOCKET
+#define GRPC_CUSTOM_SOCKET
+#endif
+#endif
+#if defined(GRPC_CUSTOM_SOCKET)
+// Do Nothing
 #elif defined(GPR_MANYLINUX1)
+#define GRPC_HAVE_ARPA_NAMESER 1
 #define GRPC_HAVE_IFADDRS 1
 #define GRPC_HAVE_IPV6_RECVPKTINFO 1
 #define GRPC_HAVE_IP_PKTINFO 1
 #define GRPC_HAVE_MSG_NOSIGNAL 1
 #define GRPC_HAVE_UNIX_SOCKET 1
+#define GRPC_POSIX_FORK 1
 #define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
 #define GRPC_POSIX_SOCKETUTILS 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
+#define GRPC_LINUX_EPOLL 1
 #elif defined(GPR_WINDOWS)
-#define GRPC_TIMER_USE_GENERIC 1
 #define GRPC_WINSOCK_SOCKET 1
 #define GRPC_WINDOWS_SOCKETUTILS 1
 #elif defined(GPR_ANDROID)
@@ -61,32 +51,46 @@
 #define GRPC_HAVE_UNIX_SOCKET 1
 #define GRPC_LINUX_EVENTFD 1
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
 #define GRPC_POSIX_SOCKETUTILS 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
 #elif defined(GPR_LINUX)
+#define GRPC_HAVE_ARPA_NAMESER 1
 #define GRPC_HAVE_IFADDRS 1
 #define GRPC_HAVE_IPV6_RECVPKTINFO 1
 #define GRPC_HAVE_IP_PKTINFO 1
 #define GRPC_HAVE_MSG_NOSIGNAL 1
 #define GRPC_HAVE_UNIX_SOCKET 1
+#ifdef LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0)
+/* TODO(yashykt): Re-enable once Fathom changes are commited.
+#define GRPC_LINUX_ERRQUEUE 1 */
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0) */
+#endif /* LINUX_VERSION_CODE */
 #define GRPC_LINUX_MULTIPOLL_WITH_EPOLL 1
+#define GRPC_POSIX_FORK 1
+#define GRPC_POSIX_HOST_NAME_MAX 1
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
 #ifdef __GLIBC_PREREQ
-#if __GLIBC_PREREQ(2, 9)
+#if __GLIBC_PREREQ(2, 4)
 #define GRPC_LINUX_EPOLL 1
+#endif
+#if __GLIBC_PREREQ(2, 9)
+#define GRPC_LINUX_EPOLL_CREATE1 1
 #define GRPC_LINUX_EVENTFD 1
 #endif
 #if __GLIBC_PREREQ(2, 10)
 #define GRPC_LINUX_SOCKETUTILS 1
 #endif
 #endif
+#ifdef LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)
+#define GRPC_HAVE_TCP_USER_TIMEOUT
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37) */
+#endif /* LINUX_VERSION_CODE */
 #ifndef __GLIBC__
 #define GRPC_LINUX_EPOLL 1
+#define GRPC_LINUX_EPOLL_CREATE1 1
 #define GRPC_LINUX_EVENTFD 1
 #define GRPC_MSG_IOVLEN_TYPE int
 #endif
@@ -97,42 +101,106 @@
 #define GRPC_POSIX_SOCKETUTILS
 #endif
 #elif defined(GPR_APPLE)
+#define GRPC_HAVE_ARPA_NAMESER 1
 #define GRPC_HAVE_IFADDRS 1
 #define GRPC_HAVE_SO_NOSIGPIPE 1
 #define GRPC_HAVE_UNIX_SOCKET 1
 #define GRPC_MSG_IOVLEN_TYPE int
+#define GRPC_POSIX_FORK 1
 #define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
+#ifdef GRPC_CFSTREAM
+#define GRPC_CFSTREAM_IOMGR 1
+#define GRPC_CFSTREAM_CLIENT 1
+#define GRPC_CFSTREAM_ENDPOINT 1
+#define GRPC_POSIX_SOCKET_ARES_EV_DRIVER 1
+#define GRPC_POSIX_SOCKET_EV 1
+#define GRPC_POSIX_SOCKET_EV_EPOLL1 1
+#define GRPC_POSIX_SOCKET_EV_EPOLLEX 1
+#define GRPC_POSIX_SOCKET_EV_POLL 1
+#define GRPC_POSIX_SOCKET_RESOLVE_ADDRESS 1
+#define GRPC_POSIX_SOCKET_SOCKADDR 1
+#define GRPC_POSIX_SOCKET_SOCKET_FACTORY 1
+#define GRPC_POSIX_SOCKET_TCP 1
+#define GRPC_POSIX_SOCKET_TCP_CLIENT 1
+#define GRPC_POSIX_SOCKET_TCP_SERVER 1
+#define GRPC_POSIX_SOCKET_TCP_SERVER_UTILS_COMMON 1
+#define GRPC_POSIX_SOCKET_UTILS_COMMON 1
+#else
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
+#endif
 #define GRPC_POSIX_SOCKETUTILS 1
+#define GRPC_POSIX_SYSCONF 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
 #elif defined(GPR_FREEBSD)
+#define GRPC_HAVE_ARPA_NAMESER 1
 #define GRPC_HAVE_IFADDRS 1
 #define GRPC_HAVE_IPV6_RECVPKTINFO 1
 #define GRPC_HAVE_SO_NOSIGPIPE 1
 #define GRPC_HAVE_UNIX_SOCKET 1
+#define GRPC_POSIX_FORK 1
 #define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
 #define GRPC_POSIX_SOCKETUTILS 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
+#elif defined(GPR_OPENBSD)
+#define GRPC_HAVE_IFADDRS 1
+#define GRPC_HAVE_IPV6_RECVPKTINFO 1
+#define GRPC_HAVE_UNIX_SOCKET 1
+#define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
+#define GRPC_POSIX_SOCKET 1
+#define GRPC_POSIX_SOCKETUTILS 1
+#define GRPC_POSIX_WAKEUP_FD 1
+#elif defined(GPR_SOLARIS)
+#define GRPC_HAVE_UNIX_SOCKET 1
+#define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
+#define GRPC_POSIX_SOCKET 1
+#define GRPC_POSIX_SOCKETUTILS 1
+#define GRPC_POSIX_WAKEUP_FD 1
+#elif defined(GPR_AIX)
+#define GRPC_HAVE_UNIX_SOCKET 1
+#define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
+#define GRPC_POSIX_SOCKET 1
+#define GRPC_POSIX_SOCKETUTILS 1
+#define GRPC_POSIX_WAKEUP_FD 1
 #elif defined(GPR_NACL)
+#define GRPC_HAVE_ARPA_NAMESER 1
 #define GRPC_POSIX_NO_SPECIAL_WAKEUP_FD 1
 #define GRPC_POSIX_SOCKET 1
-#define GRPC_POSIX_SOCKETADDR 1
 #define GRPC_POSIX_SOCKETUTILS 1
 #define GRPC_POSIX_WAKEUP_FD 1
-#define GRPC_TIMER_USE_GENERIC 1
 #elif !defined(GPR_NO_AUTODETECT_PLATFORM)
 #error "Platform not recognized"
 #endif
 
 #if defined(GRPC_POSIX_SOCKET) + defined(GRPC_WINSOCK_SOCKET) + \
-        defined(GRPC_CUSTOM_SOCKET) + defined(GRPC_UV) !=       \
+        defined(GRPC_CUSTOM_SOCKET) + defined(GRPC_CFSTREAM) != \
     1
-#error Must define exactly one of GRPC_POSIX_SOCKET, GRPC_WINSOCK_SOCKET, GPR_CUSTOM_SOCKET
+#error \
+    "Must define exactly one of GRPC_POSIX_SOCKET, GRPC_WINSOCK_SOCKET, GRPC_CUSTOM_SOCKET"
+#endif
+
+#ifdef GRPC_POSIX_SOCKET
+#define GRPC_POSIX_SOCKET_ARES_EV_DRIVER 1
+#define GRPC_POSIX_SOCKET_EV 1
+#define GRPC_POSIX_SOCKET_EV_EPOLLEX 1
+#define GRPC_POSIX_SOCKET_EV_POLL 1
+#define GRPC_POSIX_SOCKET_EV_EPOLL1 1
+#define GRPC_POSIX_SOCKET_IOMGR 1
+#define GRPC_POSIX_SOCKET_RESOLVE_ADDRESS 1
+#define GRPC_POSIX_SOCKET_SOCKADDR 1
+#define GRPC_POSIX_SOCKET_SOCKET_FACTORY 1
+#define GRPC_POSIX_SOCKET_TCP 1
+#define GRPC_POSIX_SOCKET_TCP_CLIENT 1
+#define GRPC_POSIX_SOCKET_TCP_SERVER 1
+#define GRPC_POSIX_SOCKET_TCP_SERVER_UTILS_COMMON 1
+#define GRPC_POSIX_SOCKET_UTILS_COMMON 1
+#endif
+
+#if defined(GRPC_POSIX_HOST_NAME_MAX) && defined(GRPC_POSIX_SYSCONF)
+#error "Cannot define both GRPC_POSIX_HOST_NAME_MAX and GRPC_POSIX_SYSCONF"
+#endif
+#if !defined(GRPC_POSIX_HOST_NAME_MAX) && !defined(GRPC_POSIX_SYSCONF)
+#define GRPC_GETHOSTNAME_FALLBACK 1
 #endif
 
 #endif /* GRPC_CORE_LIB_IOMGR_PORT_H */

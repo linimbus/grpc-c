@@ -1,71 +1,41 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #include "call.h"
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#include <php.h>
-#include <php_ini.h>
-#include <ext/standard/info.h>
 #include <ext/spl/spl_exceptions.h>
-#include "php_grpc.h"
-#include "call_credentials.h"
-
 #include <zend_exceptions.h>
-#include <zend_hash.h>
-
-#include <stdbool.h>
 
 #include <grpc/support/alloc.h>
-#include <grpc/grpc.h>
 
+#include "call_credentials.h"
 #include "completion_queue.h"
 #include "timeval.h"
 #include "channel.h"
 #include "byte_buffer.h"
 
 zend_class_entry *grpc_ce_call;
-#if PHP_MAJOR_VERSION >= 7
-static zend_object_handlers call_ce_handlers;
-#endif
+PHP_GRPC_DECLARE_OBJECT_HANDLER(call_ce_handlers)
 
 /* Frees and destroys an instance of wrapped_grpc_call */
 PHP_GRPC_FREE_WRAPPED_FUNC_START(wrapped_grpc_call)
   if (p->owned && p->wrapped != NULL) {
-    grpc_call_destroy(p->wrapped);
+    grpc_call_unref(p->wrapped);
   }
 PHP_GRPC_FREE_WRAPPED_FUNC_END()
 
@@ -114,6 +84,7 @@ zval *grpc_parse_metadata_array(grpc_metadata_array
                              1 TSRMLS_CC);
         efree(str_key);
         efree(str_val);
+        PHP_GRPC_FREE_STD_ZVAL(array);
         return NULL;
       }
       php_grpc_add_next_index_stringl(data, str_val,
@@ -125,7 +96,12 @@ zval *grpc_parse_metadata_array(grpc_metadata_array
       php_grpc_add_next_index_stringl(inner_array, str_val,
                                       GRPC_SLICE_LENGTH(elem->value), false);
       add_assoc_zval(array, str_key, inner_array);
+      PHP_GRPC_FREE_STD_ZVAL(inner_array);
     }
+    efree(str_key);
+#if PHP_MAJOR_VERSION >= 7
+    efree(str_val);
+#endif
   }
   return array;
 }
@@ -137,10 +113,12 @@ bool create_metadata_array(zval *array, grpc_metadata_array *metadata) {
   HashTable *inner_array_hash;
   zval *value;
   zval *inner_array;
+  grpc_metadata_array_init(metadata);
+  metadata->count = 0;
+  metadata->metadata = NULL;
   if (Z_TYPE_P(array) != IS_ARRAY) {
     return false;
   }
-  grpc_metadata_array_init(metadata);
   array_hash = Z_ARRVAL_P(array);
 
   char *key;
@@ -184,13 +162,26 @@ bool create_metadata_array(zval *array, grpc_metadata_array *metadata) {
   return true;
 }
 
+void grpc_php_metadata_array_destroy_including_entries(
+    grpc_metadata_array* array) {
+  size_t i;
+  if (array->metadata) {
+    for (i = 0; i < array->count; i++) {
+      grpc_slice_unref(array->metadata[i].key);
+      grpc_slice_unref(array->metadata[i].value);
+    }
+  }
+  grpc_metadata_array_destroy(array);
+}
+
 /* Wraps a grpc_call struct in a PHP object. Owned indicates whether the
    struct should be destroyed at the end of the object's lifecycle */
 zval *grpc_php_wrap_call(grpc_call *wrapped, bool owned TSRMLS_DC) {
   zval *call_object;
   PHP_GRPC_MAKE_STD_ZVAL(call_object);
   object_init_ex(call_object, grpc_ce_call);
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(call_object);
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        call_object);
   call->wrapped = wrapped;
   call->owned = owned;
   return call_object;
@@ -211,7 +202,8 @@ PHP_METHOD(Call, __construct) {
   zval *deadline_obj;
   char *host_override = NULL;
   php_grpc_int host_override_len = 0;
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(getThis());
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        getThis());
 
   /* "OsO|s" == 1 Object, 1 string, 1 Object, 1 optional string */
   if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "OsO|s", &channel_obj,
@@ -223,26 +215,33 @@ PHP_METHOD(Call, __construct) {
                          "an optional String", 1 TSRMLS_CC);
     return;
   }
-  wrapped_grpc_channel *channel = Z_WRAPPED_GRPC_CHANNEL_P(channel_obj);
-  if (channel->wrapped == NULL) {
+  wrapped_grpc_channel *channel =
+    PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_channel, channel_obj);
+  gpr_mu_lock(&channel->wrapper->mu);
+  if (channel->wrapper == NULL || channel->wrapper->wrapped == NULL) {
     zend_throw_exception(spl_ce_InvalidArgumentException,
                          "Call cannot be constructed from a closed Channel",
                          1 TSRMLS_CC);
+    gpr_mu_unlock(&channel->wrapper->mu);
     return;
   }
   add_property_zval(getThis(), "channel", channel_obj);
-  wrapped_grpc_timeval *deadline = Z_WRAPPED_GRPC_TIMEVAL_P(deadline_obj);
+  wrapped_grpc_timeval *deadline =
+    PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_timeval, deadline_obj);
   grpc_slice method_slice = grpc_slice_from_copied_string(method);
   grpc_slice host_slice = host_override != NULL ?
       grpc_slice_from_copied_string(host_override) : grpc_empty_slice();
   call->wrapped =
-    grpc_channel_create_call(channel->wrapped, NULL, GRPC_PROPAGATE_DEFAULTS,
+    grpc_channel_create_call(channel->wrapper->wrapped, NULL,
+                             GRPC_PROPAGATE_DEFAULTS,
                              completion_queue, method_slice,
                              host_override != NULL ? &host_slice : NULL,
                              deadline->wrapped, NULL);
   grpc_slice_unref(method_slice);
   grpc_slice_unref(host_slice);
   call->owned = true;
+  call->channel = channel;
+  gpr_mu_unlock(&channel->wrapper->mu);
 }
 
 /**
@@ -256,13 +255,21 @@ PHP_METHOD(Call, startBatch) {
   object_init(result);
   php_grpc_ulong index;
   zval *recv_status;
-  PHP_GRPC_MAKE_STD_ZVAL(recv_status);
-  object_init(recv_status);
   zval *value;
   zval *inner_value;
   zval *message_value;
   zval *message_flags;
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(getThis());
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        getThis());
+  if (call->channel) {
+    // startBatch in gRPC PHP server doesn't have channel in it.
+    if (call->channel->wrapper == NULL ||
+        call->channel->wrapper->wrapped == NULL) {
+      zend_throw_exception(spl_ce_RuntimeException,
+                           "startBatch Error. Channel is closed",
+                           1 TSRMLS_CC);
+    }
+  }
   
   grpc_op ops[8];
   size_t op_num = 0;
@@ -309,6 +316,11 @@ PHP_METHOD(Call, startBatch) {
                            "batch keys must be integers", 1 TSRMLS_CC);
       goto cleanup;
     }
+
+    ops[op_num].op = (grpc_op_type)index;
+    ops[op_num].flags = 0;
+    ops[op_num].reserved = NULL;
+
     switch(index) {
     case GRPC_OP_SEND_INITIAL_METADATA:
       if (!create_metadata_array(value, &metadata)) {
@@ -422,9 +434,6 @@ PHP_METHOD(Call, startBatch) {
                            "Unrecognized key in batch", 1 TSRMLS_CC);
       goto cleanup;
     }
-    ops[op_num].op = (grpc_op_type)index;
-    ops[op_num].flags = 0;
-    ops[op_num].reserved = NULL;
     op_num++;
   PHP_GRPC_HASH_FOREACH_END()
 
@@ -439,7 +448,7 @@ PHP_METHOD(Call, startBatch) {
   grpc_completion_queue_pluck(completion_queue, call->wrapped,
                               gpr_inf_future(GPR_CLOCK_REALTIME), NULL);
 #if PHP_MAJOR_VERSION >= 7
-  zval recv_md;
+  zval *recv_md;
 #endif
   for (int i = 0; i < op_num; i++) {
     switch(ops[i].op) {
@@ -460,8 +469,10 @@ PHP_METHOD(Call, startBatch) {
       array = grpc_parse_metadata_array(&recv_metadata TSRMLS_CC);
       add_property_zval(result, "metadata", array);
 #else
-      recv_md = *grpc_parse_metadata_array(&recv_metadata);
-      add_property_zval(result, "metadata", &recv_md);
+      recv_md = grpc_parse_metadata_array(&recv_metadata);
+      add_property_zval(result, "metadata", recv_md);
+      zval_ptr_dtor(recv_md);
+      PHP_GRPC_FREE_STD_ZVAL(recv_md);
 #endif
       PHP_GRPC_DELREF(array);
       break;
@@ -475,12 +486,16 @@ PHP_METHOD(Call, startBatch) {
       }
       break;
     case GRPC_OP_RECV_STATUS_ON_CLIENT:
+      PHP_GRPC_MAKE_STD_ZVAL(recv_status);
+      object_init(recv_status);
 #if PHP_MAJOR_VERSION < 7
       array = grpc_parse_metadata_array(&recv_trailing_metadata TSRMLS_CC);
       add_property_zval(recv_status, "metadata", array);
 #else
-      recv_md = *grpc_parse_metadata_array(&recv_trailing_metadata);
-      add_property_zval(recv_status, "metadata", &recv_md);
+      recv_md = grpc_parse_metadata_array(&recv_trailing_metadata);
+      add_property_zval(recv_status, "metadata", recv_md);
+      zval_ptr_dtor(recv_md);
+      PHP_GRPC_FREE_STD_ZVAL(recv_md);
 #endif
       PHP_GRPC_DELREF(array);
       add_property_long(recv_status, "code", status);
@@ -489,6 +504,9 @@ PHP_METHOD(Call, startBatch) {
                                    true);
       gpr_free(status_details_text);
       add_property_zval(result, "status", recv_status);
+#if PHP_MAJOR_VERSION >= 7
+      zval_ptr_dtor(recv_status);
+#endif
       PHP_GRPC_DELREF(recv_status);
       PHP_GRPC_FREE_STD_ZVAL(recv_status);
       break;
@@ -501,8 +519,8 @@ PHP_METHOD(Call, startBatch) {
   }
 
 cleanup:
-  grpc_metadata_array_destroy(&metadata);
-  grpc_metadata_array_destroy(&trailing_metadata);
+  grpc_php_metadata_array_destroy_including_entries(&metadata);
+  grpc_php_metadata_array_destroy_including_entries(&trailing_metadata);
   grpc_metadata_array_destroy(&recv_metadata);
   grpc_metadata_array_destroy(&recv_trailing_metadata);
   grpc_slice_unref(recv_status_details);
@@ -524,8 +542,11 @@ cleanup:
  * @return string The URI of the endpoint
  */
 PHP_METHOD(Call, getPeer) {
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(getThis());
-  PHP_GRPC_RETURN_STRING(grpc_call_get_peer(call->wrapped), 1);
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        getThis());
+  char *peer = grpc_call_get_peer(call->wrapped);
+  PHP_GRPC_RETVAL_STRING(peer, 1);
+  gpr_free(peer);
 }
 
 /**
@@ -534,7 +555,8 @@ PHP_METHOD(Call, getPeer) {
  * @return void
  */
 PHP_METHOD(Call, cancel) {
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(getThis());
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        getThis());
   grpc_call_cancel(call->wrapped, NULL);
 }
 
@@ -556,8 +578,9 @@ PHP_METHOD(Call, setCredentials) {
   }
 
   wrapped_grpc_call_credentials *creds =
-    Z_WRAPPED_GRPC_CALL_CREDS_P(creds_obj);
-  wrapped_grpc_call *call = Z_WRAPPED_GRPC_CALL_P(getThis());
+    PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call_credentials, creds_obj);
+  wrapped_grpc_call *call = PHP_GRPC_GET_WRAPPED_OBJECT(wrapped_grpc_call,
+                                                        getThis());
 
   grpc_call_error error = GRPC_CALL_ERROR;
   error = grpc_call_set_credentials(call->wrapped, creds->wrapped);

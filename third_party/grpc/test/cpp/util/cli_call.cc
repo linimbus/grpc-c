@@ -1,51 +1,37 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #include "test/cpp/util/cli_call.h"
 
 #include <iostream>
+#include <utility>
 
-#include <grpc++/channel.h>
-#include <grpc++/client_context.h>
-#include <grpc++/support/byte_buffer.h>
 #include <grpc/grpc.h>
 #include <grpc/slice.h>
 #include <grpc/support/log.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/client_context.h>
+#include <grpcpp/support/byte_buffer.h>
 
 namespace grpc {
 namespace testing {
 namespace {
-void* tag(int i) { return (void*)(intptr_t)i; }
+void* tag(int i) { return (void*)static_cast<intptr_t>(i); }
 }  // namespace
 
 Status CliCall::Call(std::shared_ptr<grpc::Channel> channel,
@@ -54,7 +40,7 @@ Status CliCall::Call(std::shared_ptr<grpc::Channel> channel,
                      const OutgoingMetadataContainer& metadata,
                      IncomingMetadataContainer* server_initial_metadata,
                      IncomingMetadataContainer* server_trailing_metadata) {
-  CliCall call(channel, method, metadata);
+  CliCall call(std::move(channel), method, metadata);
   call.Write(request);
   call.WritesDone();
   if (!call.Read(response, server_initial_metadata)) {
@@ -63,7 +49,7 @@ Status CliCall::Call(std::shared_ptr<grpc::Channel> channel,
   return call.Finish(server_trailing_metadata);
 }
 
-CliCall::CliCall(std::shared_ptr<grpc::Channel> channel,
+CliCall::CliCall(const std::shared_ptr<grpc::Channel>& channel,
                  const grpc::string& method,
                  const OutgoingMetadataContainer& metadata)
     : stub_(new grpc::GenericStub(channel)) {
@@ -75,7 +61,8 @@ CliCall::CliCall(std::shared_ptr<grpc::Channel> channel,
       ctx_.AddMetadata(iter->first, iter->second);
     }
   }
-  call_ = stub_->Call(&ctx_, method, &cq_, tag(1));
+  call_ = stub_->PrepareCall(&ctx_, method, &cq_);
+  call_->StartCall(tag(1));
   void* got_tag;
   bool ok;
   cq_.Next(&got_tag, &ok);
@@ -91,7 +78,7 @@ void CliCall::Write(const grpc::string& request) {
   void* got_tag;
   bool ok;
 
-  grpc_slice s = grpc_slice_from_copied_string(request.c_str());
+  gpr_slice s = gpr_slice_from_copied_buffer(request.data(), request.size());
   grpc::Slice req_slice(s, grpc::Slice::STEAL_REF);
   grpc::ByteBuffer send_buffer(&req_slice, 1);
   call_->Write(send_buffer, tag(2));
@@ -134,15 +121,14 @@ void CliCall::WritesDone() {
 }
 
 void CliCall::WriteAndWait(const grpc::string& request) {
-  grpc_slice s = grpc_slice_from_copied_string(request.c_str());
-  grpc::Slice req_slice(s, grpc::Slice::STEAL_REF);
+  grpc::Slice req_slice(request);
   grpc::ByteBuffer send_buffer(&req_slice, 1);
 
   gpr_mu_lock(&write_mu_);
   call_->Write(send_buffer, tag(2));
   write_done_ = false;
   while (!write_done_) {
-    gpr_cv_wait(&write_cv_, &write_mu_, gpr_inf_future(GPR_CLOCK_REALTIME));
+    gpr_cv_wait(&write_cv_, &write_mu_, gpr_inf_future(GPR_CLOCK_MONOTONIC));
   }
   gpr_mu_unlock(&write_mu_);
 }
@@ -152,7 +138,7 @@ void CliCall::WritesDoneAndWait() {
   call_->WritesDone(tag(4));
   write_done_ = false;
   while (!write_done_) {
-    gpr_cv_wait(&write_cv_, &write_mu_, gpr_inf_future(GPR_CLOCK_REALTIME));
+    gpr_cv_wait(&write_cv_, &write_mu_, gpr_inf_future(GPR_CLOCK_MONOTONIC));
   }
   gpr_mu_unlock(&write_mu_);
 }

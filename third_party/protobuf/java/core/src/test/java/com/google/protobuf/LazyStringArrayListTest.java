@@ -32,13 +32,12 @@ package com.google.protobuf;
 
 import static java.util.Arrays.asList;
 
-import junit.framework.TestCase;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.List;
+import junit.framework.TestCase;
 
 /**
  * Tests for {@link LazyStringArrayList}.
@@ -282,6 +281,7 @@ public class LazyStringArrayListTest extends TestCase {
     assertGenericListImmutable(byteArrayList, byteArrayList.get(0));
   }
   
+  @SuppressWarnings("unchecked")
   private static <T> void assertGenericListImmutable(List<T> list, T value) {
     try {
       list.add(value);

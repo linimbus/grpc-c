@@ -1722,6 +1722,33 @@ assert_optional_default_values_are_default (Foo__DefaultOptionalValues *mess)
 }
 
 static void
+assert_unspecified_default_values_are_correct (Foo__TestMessOptional *mess)
+{
+  assert (!mess->has_test_int32);
+  assert (mess->test_int32 == 0);
+  assert (!mess->has_test_uint32);
+  assert (mess->test_uint32 == 0);
+  assert (!mess->has_test_int64);
+  assert (mess->test_int64 == 0);
+  assert (!mess->has_test_uint64);
+  assert (mess->test_uint64 == 0);
+  assert (!mess->has_test_float);
+  assert (mess->test_float == 0.0);
+  assert (!mess->has_test_double);
+  assert (mess->test_double == 0.0);
+  assert (mess->test_string == NULL);
+  assert (!mess->has_test_bytes);
+  assert (mess->test_bytes.len == 0);
+  assert (mess->test_bytes.data == NULL);
+  assert (!mess->has_test_boolean);
+  assert (!mess->test_boolean);
+  assert (!mess->has_test_enum_small);
+  assert (mess->test_enum_small == FOO__TEST_ENUM_SMALL__NEG_VALUE);
+  assert (!mess->has_test_enum);
+  assert (mess->test_enum == FOO__TEST_ENUM__VALUENEG123456);
+}
+
+static void
 test_optional_default_values (void)
 {
   Foo__DefaultOptionalValues mess = FOO__DEFAULT_OPTIONAL_VALUES__INIT;
@@ -1733,6 +1760,9 @@ test_optional_default_values (void)
   free (data);
   assert_optional_default_values_are_default (mess2);
   foo__default_optional_values__free_unpacked (mess2, NULL);
+
+  Foo__TestMessOptional mess3 = FOO__TEST_MESS_OPTIONAL__INIT;
+  assert_unspecified_default_values_are_correct (&mess3);
 }
 
 static void
@@ -2151,6 +2181,12 @@ test_message_check(void)
   assert(1 == protobuf_c_message_check(&m.base));
 }
 
+static void
+test_message_free_null (void)
+{
+  foo__sub_mess__free_unpacked (NULL, NULL);
+}
+
 /* === simple testing framework === */
 
 typedef void (*TestFunc) (void);
@@ -2286,6 +2322,8 @@ static Test tests[] =
   { "test field flags", test_field_flags },
 
   { "test message_check()", test_message_check },
+
+  { "test freeing NULL", test_message_free_null },
 };
 #define n_tests (sizeof(tests)/sizeof(Test))
 

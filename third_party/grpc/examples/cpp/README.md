@@ -1,9 +1,9 @@
-#gRPC in 3 minutes (C++)
+# gRPC in 3 minutes (C++)
 
 ## Installation
 
 To install gRPC on your system, follow the instructions to build from source
-[here](../../INSTALL.md). This also installs the protocol buffer compiler
+[here](../../BUILDING.md). This also installs the protocol buffer compiler
 `protoc` (if you don't have it already), and the C++ gRPC plugin for `protoc`.
 
 ## Hello C++ gRPC!

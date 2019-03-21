@@ -1,42 +1,29 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #ifndef GRPC_CORE_EXT_FILTERS_CLIENT_CHANNEL_RESOLVER_DNS_C_ARES_GRPC_ARES_EV_DRIVER_H
 #define GRPC_CORE_EXT_FILTERS_CLIENT_CHANNEL_RESOLVER_DNS_C_ARES_GRPC_ARES_EV_DRIVER_H
 
-#include <ares.h>
+#include <grpc/support/port_platform.h>
 
-#include "src/core/lib/iomgr/exec_ctx.h"
+#include <ares.h>
+#include "src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper.h"
+#include "src/core/lib/gprpp/abstract.h"
 #include "src/core/lib/iomgr/pollset_set.h"
 
 typedef struct grpc_ares_ev_driver grpc_ares_ev_driver;
@@ -44,23 +31,77 @@ typedef struct grpc_ares_ev_driver grpc_ares_ev_driver;
 /* Start \a ev_driver. It will keep working until all IO on its ares_channel is
    done, or grpc_ares_ev_driver_destroy() is called. It may notify the callbacks
    bound to its ares_channel when necessary. */
-void grpc_ares_ev_driver_start(grpc_exec_ctx *exec_ctx,
-                               grpc_ares_ev_driver *ev_driver);
+void grpc_ares_ev_driver_start_locked(grpc_ares_ev_driver* ev_driver);
 
 /* Returns the ares_channel owned by \a ev_driver. To bind a c-ares query to
    \a ev_driver, use the ares_channel owned by \a ev_driver as the arg of the
    query. */
-ares_channel *grpc_ares_ev_driver_get_channel(grpc_ares_ev_driver *ev_driver);
+ares_channel* grpc_ares_ev_driver_get_channel_locked(
+    grpc_ares_ev_driver* ev_driver);
 
 /* Creates a new grpc_ares_ev_driver. Returns GRPC_ERROR_NONE if \a ev_driver is
    created successfully. */
-grpc_error *grpc_ares_ev_driver_create(grpc_ares_ev_driver **ev_driver,
-                                       grpc_pollset_set *pollset_set);
+grpc_error* grpc_ares_ev_driver_create_locked(grpc_ares_ev_driver** ev_driver,
+                                              grpc_pollset_set* pollset_set,
+                                              int query_timeout_ms,
+                                              grpc_combiner* combiner,
+                                              grpc_ares_request* request);
 
-/* Destroys \a ev_driver asynchronously. Pending lookups made on \a ev_driver
-   will be cancelled and their on_done callbacks will be invoked with a status
-   of ARES_ECANCELLED. */
-void grpc_ares_ev_driver_destroy(grpc_ares_ev_driver *ev_driver);
+/* Called back when all DNS lookups have completed. */
+void grpc_ares_ev_driver_on_queries_complete_locked(
+    grpc_ares_ev_driver* ev_driver);
+
+/* Shutdown all the grpc_fds used by \a ev_driver */
+void grpc_ares_ev_driver_shutdown_locked(grpc_ares_ev_driver* ev_driver);
+
+namespace grpc_core {
+
+/* A wrapped fd that integrates with the grpc iomgr of the current platform.
+ * A GrpcPolledFd knows how to create grpc platform-specific iomgr endpoints
+ * from "ares_socket_t" sockets, and then sign up for readability/writeability
+ * with that poller, and do shutdown and destruction. */
+class GrpcPolledFd {
+ public:
+  virtual ~GrpcPolledFd() {}
+  /* Called when c-ares library is interested and there's no pending callback */
+  virtual void RegisterForOnReadableLocked(grpc_closure* read_closure)
+      GRPC_ABSTRACT;
+  /* Called when c-ares library is interested and there's no pending callback */
+  virtual void RegisterForOnWriteableLocked(grpc_closure* write_closure)
+      GRPC_ABSTRACT;
+  /* Indicates if there is data left even after just being read from */
+  virtual bool IsFdStillReadableLocked() GRPC_ABSTRACT;
+  /* Called once and only once. Must cause cancellation of any pending
+   * read/write callbacks. */
+  virtual void ShutdownLocked(grpc_error* error) GRPC_ABSTRACT;
+  /* Get the underlying ares_socket_t that this was created from */
+  virtual ares_socket_t GetWrappedAresSocketLocked() GRPC_ABSTRACT;
+  /* A unique name, for logging */
+  virtual const char* GetName() GRPC_ABSTRACT;
+
+  GRPC_ABSTRACT_BASE_CLASS
+};
+
+/* A GrpcPolledFdFactory is 1-to-1 with and owned by the
+ * ares event driver. It knows how to create GrpcPolledFd's
+ * for the current platform, and the ares driver uses it for all of
+ * its fd's. */
+class GrpcPolledFdFactory {
+ public:
+  virtual ~GrpcPolledFdFactory() {}
+  /* Creates a new wrapped fd for the current platform */
+  virtual GrpcPolledFd* NewGrpcPolledFdLocked(
+      ares_socket_t as, grpc_pollset_set* driver_pollset_set,
+      grpc_combiner* combiner) GRPC_ABSTRACT;
+  /* Optionally configures the ares channel after creation */
+  virtual void ConfigureAresChannelLocked(ares_channel channel) GRPC_ABSTRACT;
+
+  GRPC_ABSTRACT_BASE_CLASS
+};
+
+UniquePtr<GrpcPolledFdFactory> NewGrpcPolledFdFactory(grpc_combiner* combiner);
+
+}  // namespace grpc_core
 
 #endif /* GRPC_CORE_EXT_FILTERS_CLIENT_CHANNEL_RESOLVER_DNS_C_ARES_GRPC_ARES_EV_DRIVER_H \
-          */
+        */

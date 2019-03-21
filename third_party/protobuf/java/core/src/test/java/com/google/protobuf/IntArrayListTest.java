@@ -32,11 +32,11 @@ package com.google.protobuf;
 
 import static java.util.Arrays.asList;
 
-import junit.framework.TestCase;
-
+import com.google.protobuf.Internal.IntList;
 import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
+import junit.framework.TestCase;
 
 /**
  * Tests for {@link IntArrayList}.
@@ -296,6 +296,20 @@ public class IntArrayListTest extends TestCase {
     } catch (IndexOutOfBoundsException e) {
       // expected
     }
+  }
+
+  public void testRemoveEndOfCapacity() {
+    IntList toRemove = IntArrayList.emptyList().mutableCopyWithCapacity(1);
+    toRemove.addInt(3);
+    toRemove.remove(0);
+    assertEquals(0, toRemove.size());
+  }
+
+  public void testSublistRemoveEndOfCapacity() {
+    IntList toRemove = IntArrayList.emptyList().mutableCopyWithCapacity(1);
+    toRemove.addInt(3);
+    toRemove.subList(0, 1).clear();
+    assertEquals(0, toRemove.size());
   }
 
   private void assertImmutable(IntArrayList list) {

@@ -74,7 +74,7 @@ void EnumGenerator::GenerateHeader(io::Printer* printer) {
 
   printer->Print("$comments$typedef$deprecated_attribute$ GPB_ENUM($name$) {\n",
                  "comments", enum_comments,
-                 "deprecated_attribute", GetOptionalDeprecatedAttribute(descriptor_),
+                 "deprecated_attribute", GetOptionalDeprecatedAttribute(descriptor_, descriptor_->file()),
                  "name", name_);
   printer->Indent();
 
@@ -149,7 +149,7 @@ void EnumGenerator::GenerateSource(io::Printer* printer) {
 
   printer->Print(
       "GPBEnumDescriptor *$name$_EnumDescriptor(void) {\n"
-      "  static GPBEnumDescriptor *descriptor = NULL;\n"
+      "  static _Atomic(GPBEnumDescriptor*) descriptor = nil;\n"
       "  if (!descriptor) {\n",
       "name", name_);
 
@@ -192,7 +192,8 @@ void EnumGenerator::GenerateSource(io::Printer* printer) {
         "extraTextFormatInfo", CEscape(text_format_decode_data.Data()));
     }
     printer->Print(
-      "    if (!OSAtomicCompareAndSwapPtrBarrier(nil, worker, (void * volatile *)&descriptor)) {\n"
+      "    GPBEnumDescriptor *expected = nil;\n"
+      "    if (!atomic_compare_exchange_strong(&descriptor, &expected, worker)) {\n"
       "      [worker release];\n"
       "    }\n"
       "  }\n"

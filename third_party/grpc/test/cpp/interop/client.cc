@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -35,18 +20,19 @@
 #include <unordered_map>
 
 #include <gflags/gflags.h>
-#include <grpc++/channel.h>
-#include <grpc++/client_context.h>
 #include <grpc/grpc.h>
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
-#include <grpc/support/useful.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/client_context.h>
 
-#include "src/core/lib/support/string.h"
+#include "src/core/lib/gpr/string.h"
 #include "test/cpp/interop/client_helper.h"
 #include "test/cpp/interop/interop_client.h"
 #include "test/cpp/util/test_config.h"
 
+DEFINE_bool(use_alts, false,
+            "Whether to use alts. Enable alts will disable tls.");
 DEFINE_bool(use_tls, false, "Whether to use tls.");
 DEFINE_string(custom_credentials_type, "", "User provided credentials type.");
 DEFINE_bool(use_test_ca, false, "False to use SSL roots for google");
@@ -60,6 +46,7 @@ DEFINE_string(
     "all : all test cases;\n"
     "cancel_after_begin : cancel stream after starting it;\n"
     "cancel_after_first_response: cancel on first response;\n"
+    "channel_soak: sends 'soak_iterations' rpcs, rebuilds channel each time;\n"
     "client_compressed_streaming : compressed request streaming with "
     "client_compressed_unary : single compressed request;\n"
     "client_streaming : request streaming with single response;\n"
@@ -70,10 +57,12 @@ DEFINE_string(
     "half_duplex : half-duplex streaming;\n"
     "jwt_token_creds: large_unary with JWT token auth;\n"
     "large_unary : single request and (large) response;\n"
+    "long_lived_channel: sends large_unary rpcs over a long-lived channel;\n"
     "oauth2_auth_token: raw oauth2 access token auth;\n"
     "per_rpc_creds: raw oauth2 access token on a single rpc;\n"
     "ping_pong : full-duplex streaming;\n"
     "response streaming;\n"
+    "rpc_soak: 'sends soak_iterations' large_unary rpcs;\n"
     "server_compressed_streaming : single request with compressed "
     "server_compressed_unary : single compressed response;\n"
     "server_streaming : single request with response streaming;\n"
@@ -96,6 +85,12 @@ DEFINE_bool(do_not_abort_on_transient_failures, false,
             "whether abort() is called or not. It does not control whether the "
             "test is retried in case of transient failures (and currently the "
             "interop tests are not retried even if this flag is set to true)");
+DEFINE_int32(soak_iterations, 1000,
+             "number of iterations to use for the two soak tests; rpc_soak and "
+             "channel_soak");
+DEFINE_int32(iteration_interval, 10,
+             "The interval in seconds between rpcs. This is used by "
+             "long_connection test");
 
 using grpc::testing::CreateChannelForTestCase;
 using grpc::testing::GetServiceAccountJsonKey;
@@ -105,8 +100,9 @@ int main(int argc, char** argv) {
   grpc::testing::InitTest(&argc, &argv, true);
   gpr_log(GPR_INFO, "Testing these cases: %s", FLAGS_test_case.c_str());
   int ret = 0;
-  grpc::testing::InteropClient client(CreateChannelForTestCase(FLAGS_test_case),
-                                      true,
+  grpc::testing::ChannelCreationFunc channel_creation_func =
+      std::bind(&CreateChannelForTestCase, FLAGS_test_case);
+  grpc::testing::InteropClient client(channel_creation_func, true,
                                       FLAGS_do_not_abort_on_transient_failures);
 
   std::unordered_map<grpc::string, std::function<bool()>> actions;
@@ -163,8 +159,16 @@ int main(int argc, char** argv) {
       std::bind(&grpc::testing::InteropClient::DoUnimplementedMethod, &client);
   actions["unimplemented_service"] =
       std::bind(&grpc::testing::InteropClient::DoUnimplementedService, &client);
-  // actions["cacheable_unary"] =
-  //    std::bind(&grpc::testing::InteropClient::DoCacheableUnary, &client);
+  actions["cacheable_unary"] =
+      std::bind(&grpc::testing::InteropClient::DoCacheableUnary, &client);
+  actions["channel_soak"] =
+      std::bind(&grpc::testing::InteropClient::DoChannelSoakTest, &client,
+                FLAGS_soak_iterations);
+  actions["rpc_soak"] = std::bind(&grpc::testing::InteropClient::DoRpcSoakTest,
+                                  &client, FLAGS_soak_iterations);
+  actions["long_lived_channel"] =
+      std::bind(&grpc::testing::InteropClient::DoLongLivedChannelTest, &client,
+                FLAGS_soak_iterations, FLAGS_iteration_interval);
 
   UpdateActions(&actions);
 

@@ -33,7 +33,6 @@ package com.google.protobuf;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.EnumValueDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
-
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
@@ -89,6 +88,7 @@ public final class MapEntry<K, V> extends AbstractMessage {
   }
 
   /** Create a MapEntry with the provided key and value. */
+  @SuppressWarnings("unchecked")
   private MapEntry(Metadata metadata, K key, V value) {
     this.key = key;
     this.value = value;
@@ -109,7 +109,7 @@ public final class MapEntry<K, V> extends AbstractMessage {
     } catch (InvalidProtocolBufferException e) {
       throw e.setUnfinishedMessage(this);
     } catch (IOException e) {
-      throw new InvalidProtocolBufferException(e.getMessage()).setUnfinishedMessage(this);
+      throw new InvalidProtocolBufferException(e).setUnfinishedMessage(this);
     }
   }
 
@@ -170,7 +170,7 @@ public final class MapEntry<K, V> extends AbstractMessage {
 
   @Override
   public Builder<K, V> toBuilder() {
-    return new Builder<K, V>(metadata, key, value);
+    return new Builder<K, V>(metadata, key, value, true, true);
   }
 
   @Override
@@ -246,15 +246,19 @@ public final class MapEntry<K, V> extends AbstractMessage {
     private final Metadata<K, V> metadata;
     private K key;
     private V value;
+    private boolean hasKey;
+    private boolean hasValue;
 
     private Builder(Metadata<K, V> metadata) {
-      this(metadata, metadata.defaultKey, metadata.defaultValue);
+      this(metadata, metadata.defaultKey, metadata.defaultValue, false, false);
     }
 
-    private Builder(Metadata<K, V> metadata, K key, V value) {
+    private Builder(Metadata<K, V> metadata, K key, V value, boolean hasKey, boolean hasValue) {
       this.metadata = metadata;
       this.key = key;
       this.value = value;
+      this.hasKey = hasKey;
+      this.hasValue = hasValue;
     }
 
     public K getKey() {
@@ -267,21 +271,25 @@ public final class MapEntry<K, V> extends AbstractMessage {
 
     public Builder<K, V> setKey(K key) {
       this.key = key;
+      this.hasKey = true;
       return this;
     }
 
     public Builder<K, V> clearKey() {
       this.key = metadata.defaultKey;
+      this.hasKey = false;
       return this;
     }
 
     public Builder<K, V> setValue(V value) {
       this.value = value;
+      this.hasValue = true;
       return this;
     }
 
     public Builder<K, V> clearValue() {
       this.value = metadata.defaultValue;
+      this.hasValue = false;
       return this;
     }
 
@@ -334,6 +342,15 @@ public final class MapEntry<K, V> extends AbstractMessage {
       } else {
         if (field.getType() == FieldDescriptor.Type.ENUM) {
           value = ((EnumValueDescriptor) value).getNumber();
+        } else if (field.getType() == FieldDescriptor.Type.MESSAGE) {
+          if (value != null && !metadata.defaultValue.getClass().isInstance(value)) {
+            // The value is not the exact right message type.  However, if it
+            // is an alternative implementation of the same type -- e.g. a
+            // DynamicMessage -- we should accept it.  In this case we can make
+            // a copy of the message.
+            value =
+                ((Message) metadata.defaultValue).toBuilder().mergeFrom((Message) value).build();
+          }
         }
         setValue((V) value);
       }
@@ -394,7 +411,7 @@ public final class MapEntry<K, V> extends AbstractMessage {
     @Override
     public boolean hasField(FieldDescriptor field) {
       checkFieldDescriptor(field);
-      return true;
+      return field.getNumber() == 1 ? hasKey : hasValue;
     }
 
     @Override
@@ -426,8 +443,9 @@ public final class MapEntry<K, V> extends AbstractMessage {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Builder<K, V> clone() {
-      return new Builder(metadata, key, value);
+      return new Builder(metadata, key, value, hasKey, hasValue);
     }
   }
 
@@ -436,5 +454,10 @@ public final class MapEntry<K, V> extends AbstractMessage {
       return ((MessageLite) value).isInitialized();
     }
     return true;
+  }
+  
+  /** Returns the metadata only for experimental runtime. */
+  final Metadata<K, V> getMetadata() {
+    return metadata;
   }
 }

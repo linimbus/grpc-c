@@ -1,46 +1,33 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #include <map>
 
+#include <google/protobuf/compiler/php/php_generator.h>
 #include "src/compiler/config.h"
 #include "src/compiler/generator_helpers.h"
 #include "src/compiler/php_generator_helpers.h"
 
-using grpc::protobuf::FileDescriptor;
-using grpc::protobuf::ServiceDescriptor;
-using grpc::protobuf::MethodDescriptor;
+using google::protobuf::compiler::php::GeneratedClassName;
 using grpc::protobuf::Descriptor;
+using grpc::protobuf::FileDescriptor;
+using grpc::protobuf::MethodDescriptor;
+using grpc::protobuf::ServiceDescriptor;
 using grpc::protobuf::io::Printer;
 using grpc::protobuf::io::StringOutputStream;
 using std::map;
@@ -48,7 +35,7 @@ using std::map;
 namespace grpc_php_generator {
 namespace {
 
-grpc::string MessageIdentifierName(const grpc::string &name) {
+grpc::string ConvertToPhpNamespace(const grpc::string& name) {
   std::vector<grpc::string> tokens = grpc_generator::tokenize(name, ".");
   std::ostringstream oss;
   for (unsigned int i = 0; i < tokens.size(); i++) {
@@ -58,14 +45,35 @@ grpc::string MessageIdentifierName(const grpc::string &name) {
   return oss.str();
 }
 
-void PrintMethod(const MethodDescriptor *method, Printer *out) {
-  const Descriptor *input_type = method->input_type();
-  const Descriptor *output_type = method->output_type();
+grpc::string PackageName(const FileDescriptor* file) {
+  if (file->options().has_php_namespace()) {
+    return file->options().php_namespace();
+  } else {
+    return ConvertToPhpNamespace(file->package());
+  }
+}
+
+grpc::string MessageIdentifierName(const grpc::string& name,
+                                   const FileDescriptor* file) {
+  std::vector<grpc::string> tokens = grpc_generator::tokenize(name, ".");
+  std::ostringstream oss;
+  if (PackageName(file) != "") {
+    oss << PackageName(file) << "\\";
+  }
+  oss << grpc_generator::CapitalizeFirstLetter(tokens[tokens.size() - 1]);
+  return oss.str();
+}
+
+void PrintMethod(const MethodDescriptor* method, Printer* out) {
+  const Descriptor* input_type = method->input_type();
+  const Descriptor* output_type = method->output_type();
   map<grpc::string, grpc::string> vars;
   vars["service_name"] = method->service()->full_name();
   vars["name"] = method->name();
-  vars["input_type_id"] = MessageIdentifierName(input_type->full_name());
-  vars["output_type_id"] = MessageIdentifierName(output_type->full_name());
+  vars["input_type_id"] =
+      MessageIdentifierName(GeneratedClassName(input_type), input_type->file());
+  vars["output_type_id"] = MessageIdentifierName(
+      GeneratedClassName(output_type), output_type->file());
 
   out->Print("/**\n");
   out->Print(GetPHPComments(method, " *").c_str());
@@ -75,6 +83,7 @@ void PrintMethod(const MethodDescriptor *method, Printer *out) {
                " * @param array $$options call options\n */\n"
                "public function $name$($$metadata = [], "
                "$$options = []) {\n");
+    out->Indent();
     out->Indent();
     if (method->server_streaming()) {
       out->Print("return $$this->_bidiRequest(");
@@ -93,6 +102,7 @@ void PrintMethod(const MethodDescriptor *method, Printer *out) {
                "public function $name$(\\$input_type_id$ $$argument,\n"
                "  $$metadata = [], $$options = []) {\n");
     out->Indent();
+    out->Indent();
     if (method->server_streaming()) {
       out->Print("return $$this->_serverStreamRequest(");
     } else {
@@ -105,15 +115,20 @@ void PrintMethod(const MethodDescriptor *method, Printer *out) {
                "$$metadata, $$options);\n");
   }
   out->Outdent();
+  out->Outdent();
   out->Print("}\n\n");
 }
 
 // Prints out the service descriptor object
-void PrintService(const ServiceDescriptor *service, Printer *out) {
+void PrintService(const ServiceDescriptor* service,
+                  const grpc::string& class_suffix, Printer* out) {
   map<grpc::string, grpc::string> vars;
-  out->Print(GetPHPComments(service, "//").c_str());
-  vars["name"] = service->name();
-  out->Print(vars, "class $name$Client extends \\Grpc\\BaseStub {\n\n");
+  out->Print("/**\n");
+  out->Print(GetPHPComments(service, " *").c_str());
+  out->Print(" */\n");
+  vars["name"] = GetPHPServiceClassname(service, class_suffix);
+  out->Print(vars, "class $name$ extends \\Grpc\\BaseStub {\n\n");
+  out->Indent();
   out->Indent();
   out->Print(
       "/**\n * @param string $$hostname hostname\n"
@@ -123,7 +138,9 @@ void PrintService(const ServiceDescriptor *service, Printer *out) {
       "public function __construct($$hostname, $$opts, "
       "$$channel = null) {\n");
   out->Indent();
+  out->Indent();
   out->Print("parent::__construct($$hostname, $$opts, $$channel);\n");
+  out->Outdent();
   out->Outdent();
   out->Print("}\n\n");
   for (int i = 0; i < service->method_count(); i++) {
@@ -132,12 +149,14 @@ void PrintService(const ServiceDescriptor *service, Printer *out) {
     PrintMethod(service->method(i), out);
   }
   out->Outdent();
-  out->Print("}\n\n");
+  out->Outdent();
+  out->Print("}\n");
 }
-}
+}  // namespace
 
-grpc::string GenerateFile(const FileDescriptor *file,
-                          const ServiceDescriptor *service) {
+grpc::string GenerateFile(const FileDescriptor* file,
+                          const ServiceDescriptor* service,
+                          const grpc::string& class_suffix) {
   grpc::string output;
   {
     StringOutputStream output_stream(&output);
@@ -149,18 +168,15 @@ grpc::string GenerateFile(const FileDescriptor *file,
     grpc::string leading_comments = GetPHPComments(file, "//");
     if (!leading_comments.empty()) {
       out.Print("// Original file comments:\n");
-      out.Print(leading_comments.c_str());
+      out.PrintRaw(leading_comments.c_str());
     }
 
     map<grpc::string, grpc::string> vars;
-    vars["package"] = MessageIdentifierName(file->package());
-    out.Print(vars, "namespace $package$ {\n\n");
-    out.Indent();
+    grpc::string php_namespace = PackageName(file);
+    vars["package"] = php_namespace;
+    out.Print(vars, "namespace $package$;\n\n");
 
-    PrintService(service, &out);
-
-    out.Outdent();
-    out.Print("}\n");
+    PrintService(service, class_suffix, &out);
   }
   return output;
 }

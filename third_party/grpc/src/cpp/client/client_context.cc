@@ -1,37 +1,22 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
-#include <grpc++/client_context.h>
+#include <grpcpp/client_context.h>
 
 #include <grpc/compression.h>
 #include <grpc/grpc.h>
@@ -39,9 +24,11 @@
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
 
-#include <grpc++/security/credentials.h>
-#include <grpc++/server_context.h>
-#include <grpc++/support/time.h>
+#include <grpcpp/impl/codegen/interceptor_common.h>
+#include <grpcpp/impl/grpc_library.h>
+#include <grpcpp/security/credentials.h>
+#include <grpcpp/server_context.h>
+#include <grpcpp/support/time.h>
 
 namespace grpc {
 
@@ -53,6 +40,7 @@ class DefaultGlobalClientCallbacks final
   void Destructor(ClientContext* context) override {}
 };
 
+static internal::GrpcLibraryInitializer g_gli_initializer;
 static DefaultGlobalClientCallbacks g_default_client_callbacks;
 static ClientContext::GlobalCallbacks* g_client_callbacks =
     &g_default_client_callbacks;
@@ -74,7 +62,7 @@ ClientContext::ClientContext()
 
 ClientContext::~ClientContext() {
   if (call_) {
-    grpc_call_destroy(call_);
+    grpc_call_unref(call_);
   }
   g_client_callbacks->Destructor(this);
 }
@@ -99,17 +87,21 @@ void ClientContext::set_call(grpc_call* call,
   call_ = call;
   channel_ = channel;
   if (creds_ && !creds_->ApplyToCall(call_)) {
+    // TODO(yashykt): should interceptors also see this status?
+    SendCancelToInterceptors();
     grpc_call_cancel_with_status(call, GRPC_STATUS_CANCELLED,
                                  "Failed to set credentials to rpc.", nullptr);
   }
   if (call_canceled_) {
+    SendCancelToInterceptors();
     grpc_call_cancel(call_, nullptr);
   }
 }
 
 void ClientContext::set_compression_algorithm(
     grpc_compression_algorithm algorithm) {
-  char* algorithm_name = nullptr;
+  compression_algorithm_ = algorithm;
+  const char* algorithm_name = nullptr;
   if (!grpc_compression_algorithm_name(algorithm, &algorithm_name)) {
     gpr_log(GPR_ERROR, "Name for compression algorithm '%d' unknown.",
             algorithm);
@@ -122,9 +114,17 @@ void ClientContext::set_compression_algorithm(
 void ClientContext::TryCancel() {
   std::unique_lock<std::mutex> lock(mu_);
   if (call_) {
+    SendCancelToInterceptors();
     grpc_call_cancel(call_, nullptr);
   } else {
     call_canceled_ = true;
+  }
+}
+
+void ClientContext::SendCancelToInterceptors() {
+  internal::CancelInterceptorBatchMethods cancel_methods;
+  for (size_t i = 0; i < rpc_info_.interceptors_.size(); i++) {
+    rpc_info_.RunInterceptor(&cancel_methods, i);
   }
 }
 
@@ -140,7 +140,7 @@ grpc::string ClientContext::peer() const {
 
 void ClientContext::SetGlobalCallbacks(GlobalCallbacks* client_callbacks) {
   GPR_ASSERT(g_client_callbacks == &g_default_client_callbacks);
-  GPR_ASSERT(client_callbacks != NULL);
+  GPR_ASSERT(client_callbacks != nullptr);
   GPR_ASSERT(client_callbacks != &g_default_client_callbacks);
   g_client_callbacks = client_callbacks;
 }

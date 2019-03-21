@@ -1,33 +1,18 @@
 #!/usr/bin/env ruby
 
-# Copyright 2017, Google Inc.
-# All rights reserved.
+# Copyright 2017 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # Proxy of worker service implementation for running a PHP client
 
@@ -42,12 +27,14 @@ require 'histogram'
 require 'etc'
 require 'facter'
 require 'qps-common'
-require 'src/proto/grpc/testing/services_services_pb'
+require 'src/proto/grpc/testing/worker_service_services_pb'
 require 'src/proto/grpc/testing/proxy-service_services_pb'
 
 class ProxyBenchmarkClientServiceImpl < Grpc::Testing::ProxyClientService::Service
-  def initialize(port)
+  def initialize(port, c_ext, php_client_bin)
     @mytarget = "localhost:" + port.to_s
+    @use_c_ext = c_ext
+    @php_client_bin = php_client_bin
   end
   def setup(config)
     @config = config
@@ -55,23 +42,46 @@ class ProxyBenchmarkClientServiceImpl < Grpc::Testing::ProxyClientService::Servi
     @histmax = config.histogram_params.max_possible
     @histogram = Histogram.new(@histres, @histmax)
     @start_time = Time.now
-    # TODO(vjpai): Support multiple client channels by spawning off a PHP client per channel
-    command = "php " + File.expand_path(File.dirname(__FILE__)) + "/../../php/tests/qps/client.php " + @mytarget
-    puts "Starting command: " + command
-    @php_pid = spawn(command)
+    @php_pid = Array.new(@config.client_channels)
+    (0..@config.client_channels-1).each do |chan|
+      Thread.new {
+        if @use_c_ext
+          puts "Use protobuf c extension"
+          command = "php -d extension=" + File.expand_path(File.dirname(__FILE__)) +
+            "/../../php/tests/qps/vendor/google/protobuf/php/ext/google/protobuf/modules/protobuf.so " +
+            "-d extension=" + File.expand_path(File.dirname(__FILE__)) + "/../../php/ext/grpc/modules/grpc.so " +
+            File.expand_path(File.dirname(__FILE__)) + "/" + @php_client_bin + " " + @mytarget + " #{chan%@config.server_targets.length}"
+        else
+          puts "Use protobuf php extension"
+          command = "php -d extension=" + File.expand_path(File.dirname(__FILE__)) + "/../../php/ext/grpc/modules/grpc.so " +
+            File.expand_path(File.dirname(__FILE__)) + "/" + @php_client_bin + " " + @mytarget + " #{chan%@config.server_targets.length}"
+        end
+        puts "[ruby proxy] Starting #{chan}th php-client command use c protobuf #{@use_c_ext}: " + command
+        @php_pid[chan] = spawn(command)
+        while true
+          sleep
+        end
+      }
+    end
   end
   def stop
-    Process.kill("TERM", @php_pid)
-    Process.wait(@php_pid)
+    (0..@config.client_channels-1).each do |chan|
+      Process.kill("TERM", @php_pid[chan])
+      Process.wait(@php_pid[chan])
+    end
   end
   def get_config(_args, _call)
-    puts "Answering get_config"
     @config
   end
   def report_time(call)
-    puts "Starting a time reporting stream"
     call.each_remote_read do |lat|
       @histogram.add((lat.latency)*1e9)
+    end
+    Grpc::Testing::Void.new
+  end
+  def report_hist(call)
+    call.each_remote_read do |lat|
+      @histogram.merge(lat)
     end
     Grpc::Testing::Void.new
   end
@@ -136,22 +146,31 @@ end
 
 def proxymain
   options = {
-    'driver_port' => 0
+    'driver_port' => 0,
+    'php_client_bin' => '../../php/tests/qps/client.php'
   }
   OptionParser.new do |opts|
     opts.banner = 'Usage: [--driver_port <port>]'
     opts.on('--driver_port PORT', '<port>') do |v|
       options['driver_port'] = v
     end
+    opts.on("-c", "--[no-]use_protobuf_c_extension", "Use protobuf C-extention") do |c|
+      options[:c_ext] = c
+    end
+    opts.on("-b", "--php_client_bin [FILE]",
+      "PHP client to execute; path relative to this script") do |c|
+      options['php_client_bin'] = c
+    end
   end.parse!
 
   # Configure any errors with client or server child threads to surface
   Thread.abort_on_exception = true
 
-  s = GRPC::RpcServer.new
+  # Make sure proxy_server can handle the large number of calls in benchmarks
+  s = GRPC::RpcServer.new(pool_size: 1024)
   port = s.add_http2_port("0.0.0.0:" + options['driver_port'].to_s,
                           :this_port_is_insecure)
-  bmc = ProxyBenchmarkClientServiceImpl.new(port)
+  bmc = ProxyBenchmarkClientServiceImpl.new(port, options[:c_ext], options['php_client_bin'])
   s.handle(bmc)
   s.handle(ProxyWorkerServiceImpl.new(s, bmc))
   s.run

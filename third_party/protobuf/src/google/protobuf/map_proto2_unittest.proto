@@ -29,7 +29,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 syntax = "proto2";
-
+option cc_enable_arenas = true;
 
 import "google/protobuf/unittest_import.proto";
 
@@ -83,4 +83,9 @@ message TestMaps {
   map<sfixed64, TestIntIntMap> m_sfixed64 = 10;
   map<bool, TestIntIntMap> m_bool = 11;
   map<string, TestIntIntMap> m_string = 12;
+}
+
+// Test maps in submessages.
+message TestSubmessageMaps {
+  optional TestMaps m = 1;
 }

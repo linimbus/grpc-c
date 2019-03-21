@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -38,7 +23,7 @@
 #include <sstream>
 #include <unordered_set>
 
-#include <grpc++/support/config.h>
+#include <grpcpp/support/config.h>
 
 namespace grpc {
 namespace testing {
@@ -78,7 +63,7 @@ class ErrorPrinter : public protobuf::compiler::MultiFileErrorCollector {
   ProtoFileParser* parser_;  // not owned
 };
 
-ProtoFileParser::ProtoFileParser(std::shared_ptr<grpc::Channel> channel,
+ProtoFileParser::ProtoFileParser(const std::shared_ptr<grpc::Channel>& channel,
                                  const grpc::string& proto_path,
                                  const grpc::string& protofiles)
     : has_error_(false),
@@ -232,31 +217,32 @@ bool ProtoFileParser::IsStreaming(const grpc::string& method, bool is_request) {
 }
 
 grpc::string ProtoFileParser::GetSerializedProtoFromMethod(
-    const grpc::string& method, const grpc::string& text_format_proto,
-    bool is_request) {
+    const grpc::string& method, const grpc::string& formatted_proto,
+    bool is_request, bool is_json_format) {
   has_error_ = false;
   grpc::string message_type_name = GetMessageTypeFromMethod(method, is_request);
   if (has_error_) {
     return "";
   }
-  return GetSerializedProtoFromMessageType(message_type_name,
-                                           text_format_proto);
+  return GetSerializedProtoFromMessageType(message_type_name, formatted_proto,
+                                           is_json_format);
 }
 
-grpc::string ProtoFileParser::GetTextFormatFromMethod(
+grpc::string ProtoFileParser::GetFormattedStringFromMethod(
     const grpc::string& method, const grpc::string& serialized_proto,
-    bool is_request) {
+    bool is_request, bool is_json_format) {
   has_error_ = false;
   grpc::string message_type_name = GetMessageTypeFromMethod(method, is_request);
   if (has_error_) {
     return "";
   }
-  return GetTextFormatFromMessageType(message_type_name, serialized_proto);
+  return GetFormattedStringFromMessageType(message_type_name, serialized_proto,
+                                           is_json_format);
 }
 
 grpc::string ProtoFileParser::GetSerializedProtoFromMessageType(
-    const grpc::string& message_type_name,
-    const grpc::string& text_format_proto) {
+    const grpc::string& message_type_name, const grpc::string& formatted_proto,
+    bool is_json_format) {
   has_error_ = false;
   grpc::string serialized;
   const protobuf::Descriptor* desc =
@@ -267,11 +253,23 @@ grpc::string ProtoFileParser::GetSerializedProtoFromMessageType(
   }
   std::unique_ptr<grpc::protobuf::Message> msg(
       dynamic_factory_->GetPrototype(desc)->New());
-  bool ok = protobuf::TextFormat::ParseFromString(text_format_proto, msg.get());
-  if (!ok) {
-    LogError("Failed to parse text format to proto.");
-    return "";
+
+  bool ok;
+  if (is_json_format) {
+    ok = grpc::protobuf::json::JsonStringToMessage(formatted_proto, msg.get())
+             .ok();
+    if (!ok) {
+      LogError("Failed to convert json format to proto.");
+      return "";
+    }
+  } else {
+    ok = protobuf::TextFormat::ParseFromString(formatted_proto, msg.get());
+    if (!ok) {
+      LogError("Failed to convert text format to proto.");
+      return "";
+    }
   }
+
   ok = msg->SerializeToString(&serialized);
   if (!ok) {
     LogError("Failed to serialize proto.");
@@ -280,9 +278,9 @@ grpc::string ProtoFileParser::GetSerializedProtoFromMessageType(
   return serialized;
 }
 
-grpc::string ProtoFileParser::GetTextFormatFromMessageType(
-    const grpc::string& message_type_name,
-    const grpc::string& serialized_proto) {
+grpc::string ProtoFileParser::GetFormattedStringFromMessageType(
+    const grpc::string& message_type_name, const grpc::string& serialized_proto,
+    bool is_json_format) {
   has_error_ = false;
   const protobuf::Descriptor* desc =
       desc_pool_->FindMessageTypeByName(message_type_name);
@@ -296,12 +294,24 @@ grpc::string ProtoFileParser::GetTextFormatFromMessageType(
     LogError("Failed to deserialize proto.");
     return "";
   }
-  grpc::string text_format;
-  if (!protobuf::TextFormat::PrintToString(*msg.get(), &text_format)) {
-    LogError("Failed to print proto message to text format");
-    return "";
+  grpc::string formatted_string;
+
+  if (is_json_format) {
+    grpc::protobuf::json::JsonPrintOptions jsonPrintOptions;
+    jsonPrintOptions.add_whitespace = true;
+    if (!grpc::protobuf::json::MessageToJsonString(
+             *msg.get(), &formatted_string, jsonPrintOptions)
+             .ok()) {
+      LogError("Failed to print proto message to json format");
+      return "";
+    }
+  } else {
+    if (!protobuf::TextFormat::PrintToString(*msg.get(), &formatted_string)) {
+      LogError("Failed to print proto message to text format");
+      return "";
+    }
   }
-  return text_format;
+  return formatted_string;
 }
 
 void ProtoFileParser::LogError(const grpc::string& error_msg) {

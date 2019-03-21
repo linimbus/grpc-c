@@ -23,9 +23,10 @@ make progress on one of the steps involved in name resolution, TCP connection
 establishment or TLS handshake. This may be used as the initial state for channels upon
 creation.
 
-READY: The channel has successfully established a connection all the way
-through TLS handshake (or equivalent) and all subsequent attempt to communicate
-have succeeded (or are pending without any known failure ).
+READY: The channel has successfully established a connection all the way through
+TLS handshake (or equivalent) and protocol-level (HTTP/2, etc) handshaking, and
+all subsequent attempt to communicate have succeeded (or are pending without any
+known failure).
 
 TRANSIENT_FAILURE: There has been some transient failure (such as a TCP 3-way
 handshake timing out or a socket error). Channels in this state will eventually
@@ -52,8 +53,8 @@ immediately. Pending RPCs may continue running till the application cancels them
 Channels may enter this state either because the application explicitly requested
 a shutdown or if a non-recoverable error has happened during attempts to connect
 communicate . (As of 6/12/2015, there are no known errors (while connecting or
-communicating) that are classified as non-recoverable) 
-Channels that enter this state never leave this state. 
+communicating) that are classified as non-recoverable.)  Channels that enter this
+state never leave this state.
 
 The following table lists the legal transitions from one state to another and
 corresponding reasons. Empty cells denote disallowed transitions.
@@ -115,8 +116,14 @@ Channel State API
 -----------------
 
 All gRPC libraries will expose a channel-level API method to poll the current
-state of a channel. In C++, this method is called GetCurrentState and returns
-an enum for one of the five legal states.
+state of a channel. In C++, this method is called GetState and returns an enum
+for one of the five legal states. It also accepts a boolean `try_to_connect` to
+transition to CONNECTING if the channel is currently IDLE. The boolean should
+act as if an RPC occurred, so it should also reset IDLE_TIMEOUT.
+
+```cpp
+grpc_connectivity_state GetState(bool try_to_connect);
+```
 
 All libraries should also expose an API that enables the application (user of
 the gRPC API) to be notified when the channel state changes. Since state
@@ -127,11 +134,11 @@ the user to poll the channel for the current state.
 The synchronous version of this API is:
 
 ```cpp
-bool WaitForStateChange(gpr_timespec deadline, ChannelState source_state);
+bool WaitForStateChange(grpc_connectivity_state source_state, gpr_timespec deadline);
 ```
 
-which returns true when the state changes to something other than the
-source_state and false if the deadline expires. Asynchronous and futures based
+which returns `true` when the state is something other than the
+`source_state` and `false` if the deadline expires. Asynchronous- and futures-based
 APIs should have a corresponding method that allows the application to be
 notified when the state of a channel changes.
 

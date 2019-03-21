@@ -60,6 +60,26 @@ public final class Internal {
   static final Charset ISO_8859_1 = Charset.forName("ISO-8859-1");
 
   /**
+   * Throws an appropriate {@link NullPointerException} if the given objects is {@code null}.
+   */
+  static <T> T checkNotNull(T obj) {
+    if (obj == null) {
+      throw new NullPointerException();
+    }
+    return obj;
+  }
+
+  /**
+   * Throws an appropriate {@link NullPointerException} if the given objects is {@code null}.
+   */
+  static <T> T checkNotNull(T obj, String message) {
+    if (obj == null) {
+      throw new NullPointerException(message);
+    }
+    return obj;
+  }
+
+  /**
    * Helper called by generated code to construct default values for string
    * fields.
    * <p>
@@ -394,9 +414,8 @@ public final class Internal {
     }
   }
 
-  /**
-   * An empty byte array constant used in generated code.
-   */
+
+  /** An empty byte array constant used in generated code. */
   public static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
 
   /**
@@ -409,6 +428,11 @@ public final class Internal {
   public static final CodedInputStream EMPTY_CODED_INPUT_STREAM =
       CodedInputStream.newInstance(EMPTY_BYTE_ARRAY);
 
+
+  /** Helper method to merge two MessageLite instances. */
+  static Object mergeMessage(Object destination, Object source) {
+    return ((MessageLite) destination).toBuilder().mergeFrom((MessageLite) source).buildPartial();
+  }
 
   /**
    * Provides an immutable view of {@code List<T>} around a {@code List<F>}.

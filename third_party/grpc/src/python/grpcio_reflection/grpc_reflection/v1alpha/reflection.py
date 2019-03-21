@@ -1,62 +1,48 @@
-# Copyright 2016, Google Inc.
-# All rights reserved.
+# Copyright 2016 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Reference implementation for reflection in gRPC Python."""
-
-import threading
 
 import grpc
 from google.protobuf import descriptor_pb2
 from google.protobuf import descriptor_pool
 
-from grpc_reflection.v1alpha import reflection_pb2
-from grpc_reflection.v1alpha import reflection_pb2_grpc
+from grpc_reflection.v1alpha import reflection_pb2 as _reflection_pb2
+from grpc_reflection.v1alpha import reflection_pb2_grpc as _reflection_pb2_grpc
 
 _POOL = descriptor_pool.Default()
+SERVICE_NAME = _reflection_pb2.DESCRIPTOR.services_by_name[
+    'ServerReflection'].full_name
 
 
 def _not_found_error():
-    return reflection_pb2.ServerReflectionResponse(
-        error_response=reflection_pb2.ErrorResponse(
+    return _reflection_pb2.ServerReflectionResponse(
+        error_response=_reflection_pb2.ErrorResponse(
             error_code=grpc.StatusCode.NOT_FOUND.value[0],
-            error_message=grpc.StatusCode.NOT_FOUND.value[1].encode(),))
+            error_message=grpc.StatusCode.NOT_FOUND.value[1].encode(),
+        ))
 
 
 def _file_descriptor_response(descriptor):
     proto = descriptor_pb2.FileDescriptorProto()
     descriptor.CopyToProto(proto)
     serialized_proto = proto.SerializeToString()
-    return reflection_pb2.ServerReflectionResponse(
-        file_descriptor_response=reflection_pb2.FileDescriptorResponse(
+    return _reflection_pb2.ServerReflectionResponse(
+        file_descriptor_response=_reflection_pb2.FileDescriptorResponse(
             file_descriptor_proto=(serialized_proto,)),)
 
 
-class ReflectionServicer(reflection_pb2.ServerReflectionServicer):
+class ReflectionServicer(_reflection_pb2_grpc.ServerReflectionServicer):
     """Servicer handling RPCs for service statuses."""
 
     def __init__(self, service_names, pool=None):
@@ -87,7 +73,8 @@ class ReflectionServicer(reflection_pb2.ServerReflectionServicer):
 
     def _file_containing_extension(self, containing_type, extension_number):
         try:
-            message_descriptor = self._pool.FindMessageTypeByName(containing_type)
+            message_descriptor = self._pool.FindMessageTypeByName(
+                containing_type)
             extension_descriptor = self._pool.FindExtensionByNumber(
                 message_descriptor, extension_number)
             descriptor = self._pool.FindFileContainingSymbol(
@@ -99,27 +86,32 @@ class ReflectionServicer(reflection_pb2.ServerReflectionServicer):
 
     def _all_extension_numbers_of_type(self, containing_type):
         try:
-            message_descriptor = self._pool.FindMessageTypeByName(containing_type)
-            extension_numbers = tuple(sorted(
-                extension.number
-                for extension in self._pool.FindAllExtensions(message_descriptor)))
+            message_descriptor = self._pool.FindMessageTypeByName(
+                containing_type)
+            extension_numbers = tuple(
+                sorted(
+                    extension.number
+                    for extension in self._pool.FindAllExtensions(
+                        message_descriptor)))
         except KeyError:
             return _not_found_error()
         else:
-            return reflection_pb2.ServerReflectionResponse(
-                all_extension_numbers_response=reflection_pb2.
+            return _reflection_pb2.ServerReflectionResponse(
+                all_extension_numbers_response=_reflection_pb2.
                 ExtensionNumberResponse(
                     base_type_name=message_descriptor.full_name,
                     extension_number=extension_numbers))
 
     def _list_services(self):
-        return reflection_pb2.ServerReflectionResponse(
-            list_services_response=reflection_pb2.ListServiceResponse(service=[
-                reflection_pb2.ServiceResponse(name=service_name)
-                for service_name in self._service_names
-            ]))
+        return _reflection_pb2.ServerReflectionResponse(
+            list_services_response=_reflection_pb2.ListServiceResponse(
+                service=[
+                    _reflection_pb2.ServiceResponse(name=service_name)
+                    for service_name in self._service_names
+                ]))
 
     def ServerReflectionInfo(self, request_iterator, context):
+        # pylint: disable=unused-argument
         for request in request_iterator:
             if request.HasField('file_by_filename'):
                 yield self._file_by_filename(request.file_by_filename)
@@ -136,11 +128,12 @@ class ReflectionServicer(reflection_pb2.ServerReflectionServicer):
             elif request.HasField('list_services'):
                 yield self._list_services()
             else:
-                yield reflection_pb2.ServerReflectionResponse(
-                    error_response=reflection_pb2.ErrorResponse(
+                yield _reflection_pb2.ServerReflectionResponse(
+                    error_response=_reflection_pb2.ErrorResponse(
                         error_code=grpc.StatusCode.INVALID_ARGUMENT.value[0],
                         error_message=grpc.StatusCode.INVALID_ARGUMENT.value[1]
-                        .encode(),))
+                        .encode(),
+                    ))
 
 
 def enable_server_reflection(service_names, server, pool=None):
@@ -151,5 +144,5 @@ def enable_server_reflection(service_names, server, pool=None):
       server: grpc.Server to which reflection service will be added.
       pool: DescriptorPool object to use (descriptor_pool.Default() if None).
     """
-    reflection_pb2_grpc.add_ServerReflectionServicer_to_server(
-        ReflectionServicer(service_names), server, pool)
+    _reflection_pb2_grpc.add_ServerReflectionServicer_to_server(
+        ReflectionServicer(service_names, pool=pool), server)

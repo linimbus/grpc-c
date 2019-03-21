@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -38,15 +23,18 @@
 #include <list>
 #include <memory>
 #include <mutex>
-#include <thread>
 
-#include <grpc++/support/config.h>
+#include <grpcpp/support/config.h>
+
+#include "src/core/lib/gprpp/thd.h"
+#include "src/core/lib/iomgr/resource_quota.h"
 
 namespace grpc {
 
 class ThreadManager {
  public:
-  explicit ThreadManager(int min_pollers, int max_pollers);
+  explicit ThreadManager(const char* name, grpc_resource_quota* resource_quota,
+                         int min_pollers, int max_pollers);
   virtual ~ThreadManager();
 
   // Initializes and Starts the Rpc Manager threads
@@ -79,32 +67,57 @@ class ThreadManager {
 
   // The implementation of DoWork() is supposed to perform the work found by
   // PollForWork(). The tag and ok parameters are the same as returned by
-  // PollForWork()
+  // PollForWork(). The resources parameter indicates that the call actually
+  // has the resources available for performing the RPC's work. If it doesn't,
+  // the implementation should fail it appropriately.
   //
   // The implementation of DoWork() should also do any setup needed to ensure
   // that the next call to PollForWork() (not necessarily by the current thread)
   // actually finds some work
-  virtual void DoWork(void* tag, bool ok) = 0;
+  virtual void DoWork(void* tag, bool ok, bool resources) = 0;
 
   // Mark the ThreadManager as shutdown and begin draining the work. This is a
   // non-blocking call and the caller should call Wait(), a blocking call which
   // returns only once the shutdown is complete
-  void Shutdown();
+  virtual void Shutdown();
 
   // Has Shutdown() been called
   bool IsShutdown();
 
   // A blocking call that returns only after the ThreadManager has shutdown and
   // all the threads have drained all the outstanding work
-  void Wait();
+  virtual void Wait();
+
+  // Max number of concurrent threads that were ever active in this thread
+  // manager so far. This is useful for debugging purposes (and in unit tests)
+  // to check if resource_quota is properly being enforced.
+  int GetMaxActiveThreadsSoFar();
 
  private:
-  // Helper wrapper class around std::thread. This takes a ThreadManager object
-  // and starts a new std::thread to calls the Run() function.
+  // Helper wrapper class around grpc_core::Thread. Takes a ThreadManager object
+  // and starts a new grpc_core::Thread to calls the Run() function.
   //
   // The Run() function calls ThreadManager::MainWorkLoop() function and once
   // that completes, it marks the WorkerThread completed by calling
   // ThreadManager::MarkAsCompleted()
+  //
+  // WHY IS THIS NEEDED?:
+  // When a thread terminates, some other thread *must* call Join() on that
+  // thread so that the resources are released. Having a WorkerThread wrapper
+  // will make this easier. Once Run() completes, each thread calls the
+  // following two functions:
+  //    ThreadManager::CleanupCompletedThreads()
+  //    ThreadManager::MarkAsCompleted()
+  //
+  //  - MarkAsCompleted() puts the WorkerThread object in the ThreadManger's
+  //    completed_threads_ list
+  //  - CleanupCompletedThreads() calls "Join()" on the threads that are already
+  //    in the completed_threads_ list  (since a thread cannot call Join() on
+  //    itself, it calls CleanupCompletedThreads() *before* calling
+  //    MarkAsCompleted())
+  //
+  // TODO(sreek): Consider creating the threads 'detached' so that Join() need
+  // not be called (and the need for this WorkerThread class is eliminated)
   class WorkerThread {
    public:
     WorkerThread(ThreadManager* thd_mgr);
@@ -115,30 +128,30 @@ class ThreadManager {
     // thd_mgr_>MarkAsCompleted(this) to mark the thread as completed
     void Run();
 
-    ThreadManager* thd_mgr_;
-    std::thread thd_;
+    ThreadManager* const thd_mgr_;
+    grpc_core::Thread thd_;
   };
 
   // The main funtion in ThreadManager
   void MainWorkLoop();
 
-  // Create a new poller if the number of current pollers is less than the
-  // minimum number of pollers needed (i.e min_pollers).
-  void MaybeCreatePoller();
-
-  // Returns true if the current thread can resume as a poller. i.e if the
-  // current number of pollers is less than the max_pollers.
-  bool MaybeContinueAsPoller();
-
   void MarkAsCompleted(WorkerThread* thd);
   void CleanupCompletedThreads();
 
-  // Protects shutdown_, num_pollers_ and num_threads_
-  // TODO: sreek - Change num_pollers and num_threads_ to atomics
+  // Protects shutdown_, num_pollers_, num_threads_ and
+  // max_active_threads_sofar_
   std::mutex mu_;
 
   bool shutdown_;
   std::condition_variable shutdown_cv_;
+
+  // The resource user object to use when requesting quota to create threads
+  //
+  // Note: The user of this ThreadManager object must create grpc_resource_quota
+  // object (that contains the actual max thread quota) and a grpc_resource_user
+  // object through which quota is requested whenver new threads need to be
+  // created
+  grpc_resource_user* resource_user_;
 
   // Number of threads doing polling
   int num_pollers_;
@@ -147,9 +160,14 @@ class ThreadManager {
   int min_pollers_;
   int max_pollers_;
 
-  // The total number of threads (includes threads includes the threads that are
-  // currently polling i.e num_pollers_)
+  // The total number of threads currently active (includes threads includes the
+  // threads that are currently polling i.e num_pollers_)
   int num_threads_;
+
+  // See GetMaxActiveThreadsSoFar()'s description.
+  // To be more specific, this variable tracks the max value num_threads_ was
+  // ever set so far
+  int max_active_threads_sofar_;
 
   std::mutex list_mu_;
   std::list<WorkerThread*> completed_threads_;

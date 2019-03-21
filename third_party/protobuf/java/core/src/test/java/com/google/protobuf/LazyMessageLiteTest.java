@@ -34,10 +34,8 @@ import protobuf_unittest.LazyFieldsLite.LazyExtension;
 import protobuf_unittest.LazyFieldsLite.LazyInnerMessageLite;
 import protobuf_unittest.LazyFieldsLite.LazyMessageLite;
 import protobuf_unittest.LazyFieldsLite.LazyNestedInnerMessageLite;
-
-import junit.framework.TestCase;
-
 import java.util.ArrayList;
+import junit.framework.TestCase;
 
 /**
  * Unit test for messages with lazy fields.
@@ -102,6 +100,19 @@ public class LazyMessageLiteTest extends TestCase {
     assertEquals(2, outer.getRepeatedInnerCount());
     assertEquals(119, outer.getRepeatedInner(0).getNum());
     assertEquals(122, outer.getRepeatedInner(1).getNum());
+  }
+  
+  public void testRepeatedMutability() throws Exception {
+    LazyMessageLite outer = LazyMessageLite.newBuilder()
+        .addRepeatedInner(LazyInnerMessageLite.newBuilder().setNum(119))
+        .addRepeatedInner(LazyInnerMessageLite.newBuilder().setNum(122))
+        .build();
+    
+    outer = LazyMessageLite.parseFrom(outer.toByteArray());
+    try {
+      outer.getRepeatedInnerList().set(1, null);
+      fail();
+    } catch (UnsupportedOperationException expected) {}
   }
 
   public void testAddAll() {

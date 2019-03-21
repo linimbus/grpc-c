@@ -60,6 +60,7 @@
 
 // Modified to implement C code by Dave Benson.
 
+#include <memory>
 #include <vector>
 #include <set>
 #include <stdio.h>		// for snprintf
@@ -177,7 +178,7 @@ string ToCamel(const string &name) {
 }
 
 string FullNameToLower(const string &full_name) {
-  vector<string> pieces;
+  std::vector<string> pieces;
   SplitStringUsing(full_name, ".", &pieces);
   string rv = "";
   for (unsigned i = 0; i < pieces.size(); i++) {
@@ -188,7 +189,7 @@ string FullNameToLower(const string &full_name) {
   return rv;
 }
 string FullNameToUpper(const string &full_name) {
-  vector<string> pieces;
+  std::vector<string> pieces;
   SplitStringUsing(full_name, ".", &pieces);
   string rv = "";
   for (unsigned i = 0; i < pieces.size(); i++) {
@@ -199,7 +200,7 @@ string FullNameToUpper(const string &full_name) {
   return rv;
 }
 string FullNameToC(const string &full_name) {
-  vector<string> pieces;
+  std::vector<string> pieces;
   SplitStringUsing(full_name, ".", &pieces);
   string rv = "";
   for (unsigned i = 0; i < pieces.size(); i++) {
@@ -214,7 +215,7 @@ void PrintComment (io::Printer* printer, string comment)
 {
    if (!comment.empty())
    {
-      vector<string> comment_lines;
+      std::vector<string> comment_lines;
       SplitStringUsing (comment, "\r\n", &comment_lines);
       printer->Print ("/*\n");
       for (int i = 0; i < comment_lines.size(); i++)
@@ -268,7 +269,7 @@ const char* const kKeywordList[] = {
 };
 
 std::set<string> MakeKeywordsMap() {
-  set<string> result;
+  std::set<string> result;
   for (int i = 0; i < GOOGLE_ARRAYSIZE(kKeywordList); i++) {
     result.insert(kKeywordList[i]);
   }
@@ -365,7 +366,7 @@ string GetLabelName(FieldDescriptor::Label label) {
 unsigned
 WriteIntRanges(io::Printer* printer, int n_values, const int *values, const string &name)
 {
-  map<string, string> vars;
+  std::map<string, string> vars;
   vars["name"] = name;
   if (n_values > 0) {
     int n_ranges = 1;
@@ -503,8 +504,8 @@ void SplitStringToIteratorUsing(const string& full,
 
 void SplitStringUsing(const string& full,
                       const char* delim,
-                      vector<string>* result) {
-  back_insert_iterator< vector<string> > it(*result);
+                      std::vector<string>* result) {
+  std::back_insert_iterator< std::vector<string> > it(*result);
   SplitStringToIteratorUsing(full, delim, it);
 }
 
@@ -559,7 +560,7 @@ static int CEscapeInternal(const char* src, int src_len, char* dest,
 }
 string CEscape(const string& src) {
   const int dest_length = src.size() * 4 + 1; // Maximum possible expansion
-  scoped_array<char> dest(new char[dest_length]);
+  std::unique_ptr<char[]> dest(new char[dest_length]);
   const int len = CEscapeInternal(src.data(), src.size(),
                                   dest.get(), dest_length, false);
   GOOGLE_DCHECK_GE(len, 0);

@@ -36,9 +36,6 @@
 #define GOOGLE_PROTOBUF_COMPILER_JAVA_FILE_H__
 
 #include <memory>
-#ifndef _SHARED_PTR_H
-#include <google/protobuf/stubs/shared_ptr.h>
-#endif
 #include <string>
 #include <vector>
 #include <google/protobuf/stubs/common.h>
@@ -84,8 +81,8 @@ class FileGenerator {
   // service type).
   void GenerateSiblings(const string& package_dir,
                         GeneratorContext* generator_context,
-                        vector<string>* file_list,
-                        vector<string>* annotation_list);
+                        std::vector<string>* file_list,
+                        std::vector<string>* annotation_list);
 
   const string& java_package() { return java_package_; }
   const string& classname()    { return classname_;    }
@@ -101,10 +98,10 @@ class FileGenerator {
   string java_package_;
   string classname_;
 
-  google::protobuf::scoped_array<google::protobuf::scoped_ptr<MessageGenerator> > message_generators_;
-  google::protobuf::scoped_array<google::protobuf::scoped_ptr<ExtensionGenerator> > extension_generators_;
-  google::protobuf::scoped_ptr<GeneratorFactory> generator_factory_;
-  google::protobuf::scoped_ptr<Context> context_;
+  std::vector<std::unique_ptr<MessageGenerator>> message_generators_;
+  std::vector<std::unique_ptr<ExtensionGenerator>> extension_generators_;
+  std::unique_ptr<GeneratorFactory> generator_factory_;
+  std::unique_ptr<Context> context_;
   ClassNameResolver* name_resolver_;
   const Options options_;
   bool immutable_api_;

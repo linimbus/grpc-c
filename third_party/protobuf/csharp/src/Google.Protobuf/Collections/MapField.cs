@@ -67,10 +67,16 @@ namespace Google.Protobuf.Collections
     /// </para>
     /// </remarks>
     public sealed class MapField<TKey, TValue> : IDeepCloneable<MapField<TKey, TValue>>, IDictionary<TKey, TValue>, IEquatable<MapField<TKey, TValue>>, IDictionary
+#if !NET35
+        , IReadOnlyDictionary<TKey, TValue>
+#endif
     {
+        private static readonly EqualityComparer<TValue> ValueEqualityComparer = ProtobufEqualityComparers.GetEqualityComparer<TValue>();
+        private static readonly EqualityComparer<TKey> KeyEqualityComparer = ProtobufEqualityComparers.GetEqualityComparer<TKey>();
+
         // TODO: Don't create the map/list until we have an entry. (Assume many maps will be empty.)
         private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> map =
-            new Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>>();
+            new Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>>(KeyEqualityComparer);
         private readonly LinkedList<KeyValuePair<TKey, TValue>> list = new LinkedList<KeyValuePair<TKey, TValue>>();
 
         /// <summary>
@@ -128,11 +134,8 @@ namespace Google.Protobuf.Collections
             return map.ContainsKey(key);
         }
 
-        private bool ContainsValue(TValue value)
-        {
-            var comparer = EqualityComparer<TValue>.Default;
-            return list.Any(pair => comparer.Equals(pair.Value, value));
-        }
+        private bool ContainsValue(TValue value) =>
+            list.Any(pair => ValueEqualityComparer.Equals(pair.Value, value));
 
         /// <summary>
         /// Removes the entry identified by the given key from the map.
@@ -290,8 +293,7 @@ namespace Google.Protobuf.Collections
         bool ICollection<KeyValuePair<TKey, TValue>>.Contains(KeyValuePair<TKey, TValue> item)
         {
             TValue value;
-            return TryGetValue(item.Key, out value)
-                && EqualityComparer<TValue>.Default.Equals(item.Value, value);
+            return TryGetValue(item.Key, out value) && ValueEqualityComparer.Equals(item.Value, value);
         }
 
         /// <summary>
@@ -360,11 +362,12 @@ namespace Google.Protobuf.Collections
         /// </returns>
         public override int GetHashCode()
         {
-            var valueComparer = EqualityComparer<TValue>.Default;
+            var keyComparer = KeyEqualityComparer;
+            var valueComparer = ValueEqualityComparer;
             int hash = 0;
             foreach (var pair in list)
             {
-                hash ^= pair.Key.GetHashCode() * 31 + valueComparer.GetHashCode(pair.Value);
+                hash ^= keyComparer.GetHashCode(pair.Key) * 31 + valueComparer.GetHashCode(pair.Value);
             }
             return hash;
         }
@@ -391,7 +394,7 @@ namespace Google.Protobuf.Collections
             {
                 return false;
             }
-            var valueComparer = EqualityComparer<TValue>.Default;
+            var valueComparer = ValueEqualityComparer;
             foreach (var pair in this)
             {
                 TValue value;
@@ -546,6 +549,14 @@ namespace Google.Protobuf.Collections
                 this[(TKey)key] = (TValue)value;
             }
         }
+        #endregion
+
+        #region IReadOnlyDictionary explicit interface implementation
+#if !NET35
+        IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
+
+        IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
+#endif
         #endregion
 
         private class DictionaryEnumerator : IDictionaryEnumerator
@@ -715,7 +726,7 @@ namespace Google.Protobuf.Collections
                 {
                     throw new ArgumentOutOfRangeException(nameof(arrayIndex));
                 }
-                if (arrayIndex + Count  >= array.Length)
+                if (arrayIndex + Count > array.Length)
                 {
                     throw new ArgumentException("Not enough space in the array", nameof(array));
                 }
@@ -746,7 +757,7 @@ namespace Google.Protobuf.Collections
                 {
                     throw new ArgumentOutOfRangeException(nameof(index));
                 }
-                if (index + Count >= array.Length)
+                if (index + Count > array.Length)
                 {
                     throw new ArgumentException("Not enough space in the array", nameof(array));
                 }

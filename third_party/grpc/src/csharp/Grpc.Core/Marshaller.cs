@@ -1,33 +1,18 @@
 #region Copyright notice and license
 
-// Copyright 2015, Google Inc.
-// All rights reserved.
+// Copyright 2015 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #endregion
 
@@ -44,37 +29,75 @@ namespace Grpc.Core
         readonly Func<T, byte[]> serializer;
         readonly Func<byte[], T> deserializer;
 
+        readonly Action<T, SerializationContext> contextualSerializer;
+        readonly Func<DeserializationContext, T> contextualDeserializer;
+
         /// <summary>
-        /// Initializes a new marshaller.
+        /// Initializes a new marshaller from simple serialize/deserialize functions.
         /// </summary>
         /// <param name="serializer">Function that will be used to serialize messages.</param>
         /// <param name="deserializer">Function that will be used to deserialize messages.</param>
         public Marshaller(Func<T, byte[]> serializer, Func<byte[], T> deserializer)
         {
-            this.serializer = GrpcPreconditions.CheckNotNull(serializer, "serializer");
-            this.deserializer = GrpcPreconditions.CheckNotNull(deserializer, "deserializer");
+            this.serializer = GrpcPreconditions.CheckNotNull(serializer, nameof(serializer));
+            this.deserializer = GrpcPreconditions.CheckNotNull(deserializer, nameof(deserializer));
+            // contextual serialization/deserialization is emulated to make the marshaller
+            // usable with the grpc library (required for backward compatibility).
+            this.contextualSerializer = EmulateContextualSerializer;
+            this.contextualDeserializer = EmulateContextualDeserializer;
+        }
+
+        /// <summary>
+        /// Initializes a new marshaller from serialize/deserialize fuctions that can access serialization and deserialization
+        /// context. Compared to the simple serializer/deserializer functions, using the contextual version provides more
+        /// flexibility and can lead to increased efficiency (and better performance).
+        /// Note: This constructor is part of an experimental API that can change or be removed without any prior notice.
+        /// </summary>
+        /// <param name="serializer">Function that will be used to serialize messages.</param>
+        /// <param name="deserializer">Function that will be used to deserialize messages.</param>
+        public Marshaller(Action<T, SerializationContext> serializer, Func<DeserializationContext, T> deserializer)
+        {
+            this.contextualSerializer = GrpcPreconditions.CheckNotNull(serializer, nameof(serializer));
+            this.contextualDeserializer = GrpcPreconditions.CheckNotNull(deserializer, nameof(deserializer));
+            // gRPC only uses contextual serializer/deserializer internally, so emulating the legacy
+            // (de)serializer is not necessary.
+            this.serializer = (msg) => { throw new NotImplementedException(); };
+            this.deserializer = (payload) => { throw new NotImplementedException(); };
         }
 
         /// <summary>
         /// Gets the serializer function.
         /// </summary>
-        public Func<T, byte[]> Serializer
-        {
-            get
-            {
-                return this.serializer;
-            }
-        }
+        public Func<T, byte[]> Serializer => this.serializer;
 
         /// <summary>
         /// Gets the deserializer function.
         /// </summary>
-        public Func<byte[], T> Deserializer
+        public Func<byte[], T> Deserializer => this.deserializer;
+
+        /// <summary>
+        /// Gets the serializer function.
+        /// Note: experimental API that can change or be removed without any prior notice.
+        /// </summary>
+        public Action<T, SerializationContext> ContextualSerializer => this.contextualSerializer;
+
+        /// <summary>
+        /// Gets the serializer function.
+        /// Note: experimental API that can change or be removed without any prior notice.
+        /// </summary>
+        public Func<DeserializationContext, T> ContextualDeserializer => this.contextualDeserializer;
+
+        // for backward compatibility, emulate the contextual serializer using the simple one
+        private void EmulateContextualSerializer(T message, SerializationContext context)
         {
-            get
-            {
-                return this.deserializer;
-            }
+            var payload = this.serializer(message);
+            context.Complete(payload);
+        }
+
+        // for backward compatibility, emulate the contextual deserializer using the simple one
+        private T EmulateContextualDeserializer(DeserializationContext context)
+        {
+            return this.deserializer(context.PayloadAsNewBuffer());
         }
     }
 
@@ -87,6 +110,15 @@ namespace Grpc.Core
         /// Creates a marshaller from specified serializer and deserializer.
         /// </summary>
         public static Marshaller<T> Create<T>(Func<T, byte[]> serializer, Func<byte[], T> deserializer)
+        {
+            return new Marshaller<T>(serializer, deserializer);
+        }
+
+        /// <summary>
+        /// Creates a marshaller from specified contextual serializer and deserializer.
+        /// Note: This method is part of an experimental API that can change or be removed without any prior notice.
+        /// </summary>
+        public static Marshaller<T> Create<T>(Action<T, SerializationContext> serializer, Func<DeserializationContext, T> deserializer)
         {
             return new Marshaller<T>(serializer, deserializer);
         }

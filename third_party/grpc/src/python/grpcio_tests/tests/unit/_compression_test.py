@@ -1,38 +1,23 @@
-# Copyright 2016, Google Inc.
-# All rights reserved.
+# Copyright 2016 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tests server and client side compression."""
 
 import unittest
 
+import logging
 import grpc
 from grpc import _grpcio_metadata
-from grpc.framework.foundation import logging_pool
 
 from tests.unit import test_common
 from tests.unit.framework.common import test_constants
@@ -42,16 +27,16 @@ _STREAM_STREAM = '/test/StreamStream'
 
 
 def handle_unary(request, servicer_context):
-    servicer_context.send_initial_metadata(
-        [('grpc-internal-encoding-request', 'gzip')])
+    servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
+                                             'gzip')])
     return request
 
 
 def handle_stream(request_iterator, servicer_context):
     # TODO(issue:#6891) We should be able to remove this loop,
     # and replace with return; yield
-    servicer_context.send_initial_metadata(
-        [('grpc-internal-encoding-request', 'gzip')])
+    servicer_context.send_initial_metadata([('grpc-internal-encoding-request',
+                                             'gzip')])
     for request in request_iterator:
         yield request
 
@@ -68,9 +53,9 @@ class _MethodHandler(grpc.RpcMethodHandler):
         self.stream_unary = None
         self.stream_stream = None
         if self.request_streaming and self.response_streaming:
-            self.stream_stream = lambda x, y: handle_stream(x, y)
+            self.stream_stream = handle_stream
         elif not self.request_streaming and not self.response_streaming:
-            self.unary_unary = lambda x, y: handle_unary(x, y)
+            self.unary_unary = handle_unary
 
 
 class _GenericHandler(grpc.GenericRpcHandler):
@@ -87,9 +72,8 @@ class _GenericHandler(grpc.GenericRpcHandler):
 class CompressionTest(unittest.TestCase):
 
     def setUp(self):
-        self._server_pool = logging_pool.pool(test_constants.THREAD_CONCURRENCY)
-        self._server = grpc.server(
-            self._server_pool, handlers=(_GenericHandler(),))
+        self._server = test_common.test_server()
+        self._server.add_generic_rpc_handlers((_GenericHandler(),))
         self._port = self._server.add_insecure_port('[::]:0')
         self._server.start()
 
@@ -134,4 +118,5 @@ class CompressionTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
     unittest.main(verbosity=2)

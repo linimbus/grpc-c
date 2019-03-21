@@ -1,62 +1,47 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #import "GRPCWrappedCall.h"
 
 #import <Foundation/Foundation.h>
-#include <grpc/grpc.h>
 #include <grpc/byte_buffer.h>
+#include <grpc/grpc.h>
 #include <grpc/support/alloc.h>
 
 #import "GRPCCompletionQueue.h"
 #import "GRPCHost.h"
-#import "NSDictionary+GRPC.h"
 #import "NSData+GRPC.h"
+#import "NSDictionary+GRPC.h"
 #import "NSError+GRPC.h"
 
 #import "GRPCOpBatchLog.h"
 
 @implementation GRPCOperation {
-@protected
+ @protected
   // Most operation subclasses don't set any flags in the grpc_op, and rely on the flag member being
   // initialized to zero.
   grpc_op _op;
-  void(^_handler)();
+  void (^_handler)(void);
 }
 
 - (void)finish {
   if (_handler) {
-    void(^handler)() = _handler;
+    void (^handler)(void) = _handler;
     _handler = nil;
     handler();
   }
@@ -69,14 +54,13 @@
   return [self initWithMetadata:nil flags:0 handler:nil];
 }
 
-- (instancetype)initWithMetadata:(NSDictionary *)metadata
-                         handler:(void (^)())handler {
+- (instancetype)initWithMetadata:(NSDictionary *)metadata handler:(void (^)(void))handler {
   return [self initWithMetadata:metadata flags:0 handler:handler];
 }
 
 - (instancetype)initWithMetadata:(NSDictionary *)metadata
                            flags:(uint32_t)flags
-                         handler:(void (^)())handler {
+                         handler:(void (^)(void))handler {
   if (self = [super init]) {
     _op.op = GRPC_OP_SEND_INITIAL_METADATA;
     _op.data.send_initial_metadata.count = metadata.count;
@@ -90,6 +74,10 @@
 }
 
 - (void)dealloc {
+  for (int i = 0; i < _op.data.send_initial_metadata.count; i++) {
+    grpc_slice_unref(_op.data.send_initial_metadata.metadata[i].key);
+    grpc_slice_unref(_op.data.send_initial_metadata.metadata[i].value);
+  }
   gpr_free(_op.data.send_initial_metadata.metadata);
 }
 
@@ -101,7 +89,7 @@
   return [self initWithMessage:nil handler:nil];
 }
 
-- (instancetype)initWithMessage:(NSData *)message handler:(void (^)())handler {
+- (instancetype)initWithMessage:(NSData *)message handler:(void (^)(void))handler {
   if (!message) {
     [NSException raise:NSInvalidArgumentException format:@"message cannot be nil"];
   }
@@ -125,7 +113,7 @@
   return [self initWithHandler:nil];
 }
 
-- (instancetype)initWithHandler:(void (^)())handler {
+- (instancetype)initWithHandler:(void (^)(void))handler {
   if (self = [super init]) {
     _op.op = GRPC_OP_SEND_CLOSE_FROM_CLIENT;
     _handler = handler;
@@ -139,11 +127,11 @@
   grpc_metadata_array _headers;
 }
 
-- (instancetype) init {
+- (instancetype)init {
   return [self initWithHandler:nil];
 }
 
-- (instancetype) initWithHandler:(void (^)(NSDictionary *))handler {
+- (instancetype)initWithHandler:(void (^)(NSDictionary *))handler {
   if (self = [super init]) {
     _op.op = GRPC_OP_RECV_INITIAL_METADATA;
     grpc_metadata_array_init(&_headers);
@@ -153,8 +141,8 @@
       __weak typeof(self) weakSelf = self;
       _handler = ^{
         __strong typeof(self) strongSelf = weakSelf;
-        NSDictionary *metadata = [NSDictionary
-                                  grpc_dictionaryFromMetadataArray:strongSelf->_headers];
+        NSDictionary *metadata =
+            [NSDictionary grpc_dictionaryFromMetadataArray:strongSelf->_headers];
         handler(metadata);
       };
     }
@@ -168,7 +156,7 @@
 
 @end
 
-@implementation GRPCOpRecvMessage{
+@implementation GRPCOpRecvMessage {
   grpc_byte_buffer *_receivedMessage;
 }
 
@@ -194,24 +182,26 @@
 
 @end
 
-@implementation GRPCOpRecvStatus{
+@implementation GRPCOpRecvStatus {
   grpc_status_code _statusCode;
   grpc_slice _details;
   size_t _detailsCapacity;
   grpc_metadata_array _trailers;
+  const char *_errorString;
 }
 
-- (instancetype) init {
+- (instancetype)init {
   return [self initWithHandler:nil];
 }
 
-- (instancetype) initWithHandler:(void (^)(NSError *, NSDictionary *))handler {
+- (instancetype)initWithHandler:(void (^)(NSError *, NSDictionary *))handler {
   if (self = [super init]) {
     _op.op = GRPC_OP_RECV_STATUS_ON_CLIENT;
     _op.data.recv_status_on_client.status = &_statusCode;
     _op.data.recv_status_on_client.status_details = &_details;
     grpc_metadata_array_init(&_trailers);
     _op.data.recv_status_on_client.trailing_metadata = &_trailers;
+    _op.data.recv_status_on_client.error_string = &_errorString;
     if (handler) {
       // Prevent reference cycle with _handler
       __weak typeof(self) weakSelf = self;
@@ -220,9 +210,10 @@
         if (strongSelf) {
           char *details = grpc_slice_to_c_string(strongSelf->_details);
           NSError *error = [NSError grpc_errorFromStatusCode:strongSelf->_statusCode
-                                                     details:details];
-          NSDictionary *trailers = [NSDictionary
-                                    grpc_dictionaryFromMetadataArray:strongSelf->_trailers];
+                                                     details:details
+                                                 errorString:strongSelf->_errorString];
+          NSDictionary *trailers =
+              [NSDictionary grpc_dictionaryFromMetadataArray:strongSelf->_trailers];
           handler(error, trailers);
           gpr_free(details);
         }
@@ -235,6 +226,7 @@
 - (void)dealloc {
   grpc_metadata_array_destroy(&_trailers);
   grpc_slice_unref(_details);
+  gpr_free((void *)_errorString);
 }
 
 @end
@@ -247,14 +239,15 @@
 }
 
 - (instancetype)init {
-  return [self initWithHost:nil path:nil];
+  return [self initWithHost:nil serverName:nil path:nil timeout:0];
 }
 
 - (instancetype)initWithHost:(NSString *)host
-                        path:(NSString *)path {
+                  serverName:(NSString *)serverName
+                        path:(NSString *)path
+                     timeout:(NSTimeInterval)timeout {
   if (!path || !host) {
-    [NSException raise:NSInvalidArgumentException
-                format:@"path and host cannot be nil."];
+    [NSException raise:NSInvalidArgumentException format:@"path and host cannot be nil."];
   }
 
   if (self = [super init]) {
@@ -263,7 +256,10 @@
     // queue. Currently we use a singleton queue.
     _queue = [GRPCCompletionQueue completionQueue];
 
-    _call = [[GRPCHost hostWithAddress:host] unmanagedCallWithPath:path completionQueue:_queue];
+    _call = [[GRPCHost hostWithAddress:host] unmanagedCallWithPath:path
+                                                        serverName:serverName
+                                                           timeout:timeout
+                                                   completionQueue:_queue];
     if (_call == NULL) {
       return nil;
     }
@@ -275,9 +271,9 @@
   [self startBatchWithOperations:operations errorHandler:nil];
 }
 
-- (void)startBatchWithOperations:(NSArray *)operations errorHandler:(void (^)())errorHandler {
-  // Keep logs of op batches when we are running tests. Disabled when in production for improved
-  // performance.
+- (void)startBatchWithOperations:(NSArray *)operations errorHandler:(void (^)(void))errorHandler {
+// Keep logs of op batches when we are running tests. Disabled when in production for improved
+// performance.
 #ifdef GRPC_TEST_OBJC
   [GRPCOpBatchLog addOpBatchToLog:operations];
 #endif
@@ -288,25 +284,26 @@
   for (GRPCOperation *operation in operations) {
     ops_array[i++] = operation.op;
   }
-  grpc_call_error error = grpc_call_start_batch(_call, ops_array, nops,
-                                                (__bridge_retained void *)(^(bool success){
-    if (!success) {
-      if (errorHandler) {
-        errorHandler();
-      } else {
-        return;
-      }
-    }
-    for (GRPCOperation *operation in operations) {
-      [operation finish];
-    }
-  }), NULL);
+  grpc_call_error error =
+      grpc_call_start_batch(_call, ops_array, nops, (__bridge_retained void *)(^(bool success) {
+                              if (!success) {
+                                if (errorHandler) {
+                                  errorHandler();
+                                } else {
+                                  return;
+                                }
+                              }
+                              for (GRPCOperation *operation in operations) {
+                                [operation finish];
+                              }
+                            }),
+                            NULL);
   gpr_free(ops_array);
 
   if (error != GRPC_CALL_OK) {
-    [NSException raise:NSInternalInconsistencyException
-                format:@"A precondition for calling grpc_call_start_batch wasn't met. Error %i",
-     error];
+    [NSException
+         raise:NSInternalInconsistencyException
+        format:@"A precondition for calling grpc_call_start_batch wasn't met. Error %i", error];
   }
 }
 
@@ -315,7 +312,7 @@
 }
 
 - (void)dealloc {
-  grpc_call_destroy(_call);
+  grpc_call_unref(_call);
 }
 
 @end

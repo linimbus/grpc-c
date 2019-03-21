@@ -1,43 +1,25 @@
 <?php
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
-require dirname(__FILE__).'/../vendor/autoload.php';
+// php:generate protoc --proto_path=./../../protos  --php_out=./  --grpc_out=./ --plugin=protoc-gen-grpc=./../../../bins/opt/grpc_php_plugin ./../../protos/route_guide.proto
 
-// The following includes are needed when using protobuf 3.1.0
-// and will suppress warnings when using protobuf 3.2.0+
-@include_once dirname(__FILE__).'/route_guide.pb.php';
-@include_once dirname(__FILE__).'/route_guide_grpc_pb.php';
+require dirname(__FILE__).'/../vendor/autoload.php';
 
 define('COORD_FACTOR', 1e7);
 
@@ -53,9 +35,12 @@ function printFeature($feature)
     } else {
         $name_str = "feature called $name";
     }
-    echo sprintf("Found %s \n  at %f, %f\n", $name_str,
+    echo sprintf(
+        "Found %s \n  at %f, %f\n",
+        $name_str,
                  $feature->getLocation()->getLatitude() / COORD_FACTOR,
-                 $feature->getLocation()->getLongitude() / COORD_FACTOR);
+                 $feature->getLocation()->getLongitude() / COORD_FACTOR
+    );
 }
 
 /**
@@ -137,19 +122,24 @@ function runRecordRoute()
         $feature_name = $db[$index]['name'];
         $point->setLatitude($lat);
         $point->setLongitude($long);
-        echo sprintf("Visiting point %f, %f,\n  with feature name: %s\n",
-                     $lat / COORD_FACTOR, $long / COORD_FACTOR,
-                     $feature_name ? $feature_name : '<empty>');
+        echo sprintf(
+            "Visiting point %f, %f,\n  with feature name: %s\n",
+                     $lat / COORD_FACTOR,
+            $long / COORD_FACTOR,
+                     $feature_name ? $feature_name : '<empty>'
+        );
         usleep(rand(300000, 800000));
         $call->write($point);
     }
     list($route_summary, $status) = $call->wait();
-    echo sprintf("Finished trip with %d points\nPassed %d features\n".
+    echo sprintf(
+        "Finished trip with %d points\nPassed %d features\n".
                  "Travelled %d meters\nIt took %d seconds\n",
                  $route_summary->getPointCount(),
                  $route_summary->getFeatureCount(),
                  $route_summary->getDistance(),
-                 $route_summary->getElapsedTime());
+                 $route_summary->getElapsedTime()
+    );
 }
 
 /**
@@ -181,8 +171,12 @@ function runRouteChat()
         $route_note->setLocation($point);
         $route_note->setMessage($message = $n[2]);
 
-        echo sprintf("Sending message: '%s' at (%d, %d)\n",
-                     $message, $lat, $long);
+        echo sprintf(
+            "Sending message: '%s' at (%d, %d)\n",
+                     $message,
+            $lat,
+            $long
+        );
         // send a bunch of messages to the server
         $call->write($route_note);
     }
@@ -190,10 +184,12 @@ function runRouteChat()
 
     // read from the server until there's no more
     while ($route_note_reply = $call->read()) {
-        echo sprintf("Previous left message at (%d, %d): '%s'\n",
+        echo sprintf(
+            "Previous left message at (%d, %d): '%s'\n",
                      $route_note_reply->getLocation()->getLatitude(),
                      $route_note_reply->getLocation()->getLongitude(),
-                     $route_note_reply->getMessage());
+                     $route_note_reply->getMessage()
+        );
     }
 }
 

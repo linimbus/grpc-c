@@ -1,55 +1,42 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
+#include <cinttypes>
 #include <mutex>
 #include <thread>
 
-#include <grpc++/channel.h>
-#include <grpc++/client_context.h>
-#include <grpc++/create_channel.h>
-#include <grpc++/server.h>
-#include <grpc++/server_builder.h>
-#include <grpc++/server_context.h>
 #include <grpc/grpc.h>
-#include <grpc/support/thd.h>
 #include <grpc/support/time.h>
-#include <gtest/gtest.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/client_context.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/resource_quota.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
 
 #include "src/core/lib/surface/api_trace.h"
 #include "src/proto/grpc/testing/duplicate/echo_duplicate.grpc.pb.h"
 #include "src/proto/grpc/testing/echo.grpc.pb.h"
 #include "test/core/util/port.h"
 #include "test/core/util/test_config.h"
+
+#include <gtest/gtest.h>
 
 using grpc::testing::EchoRequest;
 using grpc::testing::EchoResponse;
@@ -64,113 +51,13 @@ const int kNumRpcs = 1000;  // Number of RPCs per thread
 namespace grpc {
 namespace testing {
 
-namespace {
-
-// When echo_deadline is requested, deadline seen in the ServerContext is set in
-// the response in seconds.
-void MaybeEchoDeadline(ServerContext* context, const EchoRequest* request,
-                       EchoResponse* response) {
-  if (request->has_param() && request->param().echo_deadline()) {
-    gpr_timespec deadline = gpr_inf_future(GPR_CLOCK_REALTIME);
-    if (context->deadline() != system_clock::time_point::max()) {
-      Timepoint2Timespec(context->deadline(), &deadline);
-    }
-    response->mutable_param()->set_request_deadline(deadline.tv_sec);
-  }
-}
-
-}  // namespace
-
 class TestServiceImpl : public ::grpc::testing::EchoTestService::Service {
  public:
-  TestServiceImpl() : signal_client_(false) {}
+  TestServiceImpl() {}
 
   Status Echo(ServerContext* context, const EchoRequest* request,
               EchoResponse* response) override {
     response->set_message(request->message());
-    MaybeEchoDeadline(context, request, response);
-    if (request->has_param() && request->param().client_cancel_after_us()) {
-      {
-        std::unique_lock<std::mutex> lock(mu_);
-        signal_client_ = true;
-      }
-      while (!context->IsCancelled()) {
-        gpr_sleep_until(gpr_time_add(
-            gpr_now(GPR_CLOCK_REALTIME),
-            gpr_time_from_micros(request->param().client_cancel_after_us(),
-                                 GPR_TIMESPAN)));
-      }
-      return Status::CANCELLED;
-    } else if (request->has_param() &&
-               request->param().server_cancel_after_us()) {
-      gpr_sleep_until(gpr_time_add(
-          gpr_now(GPR_CLOCK_REALTIME),
-          gpr_time_from_micros(request->param().server_cancel_after_us(),
-                               GPR_TIMESPAN)));
-      return Status::CANCELLED;
-    } else {
-      EXPECT_FALSE(context->IsCancelled());
-    }
-    return Status::OK;
-  }
-
-  // Unimplemented is left unimplemented to test the returned error.
-
-  Status RequestStream(ServerContext* context,
-                       ServerReader<EchoRequest>* reader,
-                       EchoResponse* response) override {
-    EchoRequest request;
-    response->set_message("");
-    while (reader->Read(&request)) {
-      response->mutable_message()->append(request.message());
-    }
-    return Status::OK;
-  }
-
-  // Return 3 messages.
-  // TODO(yangg) make it generic by adding a parameter into EchoRequest
-  Status ResponseStream(ServerContext* context, const EchoRequest* request,
-                        ServerWriter<EchoResponse>* writer) override {
-    EchoResponse response;
-    response.set_message(request->message() + "0");
-    writer->Write(response);
-    response.set_message(request->message() + "1");
-    writer->Write(response);
-    response.set_message(request->message() + "2");
-    writer->Write(response);
-
-    return Status::OK;
-  }
-
-  Status BidiStream(
-      ServerContext* context,
-      ServerReaderWriter<EchoResponse, EchoRequest>* stream) override {
-    EchoRequest request;
-    EchoResponse response;
-    while (stream->Read(&request)) {
-      gpr_log(GPR_INFO, "recv msg %s", request.message().c_str());
-      response.set_message(request.message());
-      stream->Write(response);
-    }
-    return Status::OK;
-  }
-
-  bool signal_client() {
-    std::unique_lock<std::mutex> lock(mu_);
-    return signal_client_;
-  }
-
- private:
-  bool signal_client_;
-  std::mutex mu_;
-};
-
-class TestServiceImplDupPkg
-    : public ::grpc::testing::duplicate::EchoTestService::Service {
- public:
-  Status Echo(ServerContext* context, const EchoRequest* request,
-              EchoResponse* response) override {
-    response->set_message("no package");
     return Status::OK;
   }
 };
@@ -182,63 +69,115 @@ class CommonStressTest {
   virtual ~CommonStressTest() {}
   virtual void SetUp() = 0;
   virtual void TearDown() = 0;
-  void ResetStub() {
-    std::shared_ptr<Channel> channel =
-        CreateChannel(server_address_.str(), InsecureChannelCredentials());
-    stub_ = grpc::testing::EchoTestService::NewStub(channel);
-  }
+  virtual void ResetStub() = 0;
+  virtual bool AllowExhaustion() = 0;
   grpc::testing::EchoTestService::Stub* GetStub() { return stub_.get(); }
 
  protected:
-  void SetUpStart(ServerBuilder* builder, Service* service) {
-    int port = grpc_pick_unused_port_or_die();
-    server_address_ << "localhost:" << port;
-    // Setup server
-    builder->AddListeningPort(server_address_.str(),
-                              InsecureServerCredentials());
+  std::unique_ptr<grpc::testing::EchoTestService::Stub> stub_;
+  std::unique_ptr<Server> server_;
+
+  virtual void SetUpStart(ServerBuilder* builder, Service* service) = 0;
+  void SetUpStartCommon(ServerBuilder* builder, Service* service) {
     builder->RegisterService(service);
     builder->SetMaxMessageSize(
         kMaxMessageSize_);  // For testing max message size.
-    builder->RegisterService(&dup_pkg_service_);
   }
   void SetUpEnd(ServerBuilder* builder) { server_ = builder->BuildAndStart(); }
   void TearDownStart() { server_->Shutdown(); }
   void TearDownEnd() {}
 
  private:
-  std::unique_ptr<grpc::testing::EchoTestService::Stub> stub_;
-  std::unique_ptr<Server> server_;
-  std::ostringstream server_address_;
   const int kMaxMessageSize_;
-  TestServiceImplDupPkg dup_pkg_service_;
 };
 
-class CommonStressTestSyncServer : public CommonStressTest<TestServiceImpl> {
+template <class Service>
+class CommonStressTestInsecure : public CommonStressTest<Service> {
+ public:
+  void ResetStub() override {
+    std::shared_ptr<Channel> channel =
+        CreateChannel(server_address_.str(), InsecureChannelCredentials());
+    this->stub_ = grpc::testing::EchoTestService::NewStub(channel);
+  }
+  bool AllowExhaustion() override { return false; }
+
+ protected:
+  void SetUpStart(ServerBuilder* builder, Service* service) override {
+    int port = grpc_pick_unused_port_or_die();
+    this->server_address_ << "localhost:" << port;
+    // Setup server
+    builder->AddListeningPort(server_address_.str(),
+                              InsecureServerCredentials());
+    this->SetUpStartCommon(builder, service);
+  }
+
+ private:
+  std::ostringstream server_address_;
+};
+
+template <class Service, bool allow_resource_exhaustion>
+class CommonStressTestInproc : public CommonStressTest<Service> {
+ public:
+  void ResetStub() override {
+    ChannelArguments args;
+    std::shared_ptr<Channel> channel = this->server_->InProcessChannel(args);
+    this->stub_ = grpc::testing::EchoTestService::NewStub(channel);
+  }
+  bool AllowExhaustion() override { return allow_resource_exhaustion; }
+
+ protected:
+  void SetUpStart(ServerBuilder* builder, Service* service) override {
+    this->SetUpStartCommon(builder, service);
+  }
+};
+
+template <class BaseClass>
+class CommonStressTestSyncServer : public BaseClass {
  public:
   void SetUp() override {
     ServerBuilder builder;
-    SetUpStart(&builder, &service_);
-    SetUpEnd(&builder);
+    this->SetUpStart(&builder, &service_);
+    this->SetUpEnd(&builder);
   }
   void TearDown() override {
-    TearDownStart();
-    TearDownEnd();
+    this->TearDownStart();
+    this->TearDownEnd();
   }
 
  private:
   TestServiceImpl service_;
 };
 
-class CommonStressTestAsyncServer
-    : public CommonStressTest<grpc::testing::EchoTestService::AsyncService> {
+template <class BaseClass>
+class CommonStressTestSyncServerLowThreadCount : public BaseClass {
+ public:
+  void SetUp() override {
+    ServerBuilder builder;
+    ResourceQuota quota;
+    this->SetUpStart(&builder, &service_);
+    quota.SetMaxThreads(4);
+    builder.SetResourceQuota(quota);
+    this->SetUpEnd(&builder);
+  }
+  void TearDown() override {
+    this->TearDownStart();
+    this->TearDownEnd();
+  }
+
+ private:
+  TestServiceImpl service_;
+};
+
+template <class BaseClass>
+class CommonStressTestAsyncServer : public BaseClass {
  public:
   CommonStressTestAsyncServer() : contexts_(kNumAsyncServerThreads * 100) {}
   void SetUp() override {
     shutting_down_ = false;
     ServerBuilder builder;
-    SetUpStart(&builder, &service_);
+    this->SetUpStart(&builder, &service_);
     cq_ = builder.AddCompletionQueue();
-    SetUpEnd(&builder);
+    this->SetUpEnd(&builder);
     for (int i = 0; i < kNumAsyncServerThreads * 100; i++) {
       RefreshContext(i);
     }
@@ -250,7 +189,7 @@ class CommonStressTestAsyncServer
   void TearDown() override {
     {
       std::unique_lock<std::mutex> l(mu_);
-      TearDownStart();
+      this->TearDownStart();
       shutting_down_ = true;
       cq_->Shutdown();
     }
@@ -263,7 +202,7 @@ class CommonStressTestAsyncServer
     bool ignored_ok;
     while (cq_->Next(&ignored_tag, &ignored_ok))
       ;
-    TearDownEnd();
+    this->TearDownEnd();
   }
 
  private:
@@ -300,7 +239,7 @@ class CommonStressTestAsyncServer
       service_.RequestEcho(contexts_[i].srv_ctx.get(),
                            &contexts_[i].recv_request,
                            contexts_[i].response_writer.get(), cq_.get(),
-                           cq_.get(), (void*)(intptr_t)i);
+                           cq_.get(), (void*)static_cast<intptr_t>(i));
     }
   }
   struct Context {
@@ -329,7 +268,8 @@ class End2endTest : public ::testing::Test {
   Common common_;
 };
 
-static void SendRpc(grpc::testing::EchoTestService::Stub* stub, int num_rpcs) {
+static void SendRpc(grpc::testing::EchoTestService::Stub* stub, int num_rpcs,
+                    bool allow_exhaustion, gpr_atm* errors) {
   EchoRequest request;
   EchoResponse response;
   request.set_message("Hello");
@@ -337,27 +277,52 @@ static void SendRpc(grpc::testing::EchoTestService::Stub* stub, int num_rpcs) {
   for (int i = 0; i < num_rpcs; ++i) {
     ClientContext context;
     Status s = stub->Echo(&context, request, &response);
-    EXPECT_EQ(response.message(), request.message());
+    EXPECT_TRUE(s.ok() || (allow_exhaustion &&
+                           s.error_code() == StatusCode::RESOURCE_EXHAUSTED));
     if (!s.ok()) {
-      gpr_log(GPR_ERROR, "RPC error: %d: %s", s.error_code(),
-              s.error_message().c_str());
+      if (!(allow_exhaustion &&
+            s.error_code() == StatusCode::RESOURCE_EXHAUSTED)) {
+        gpr_log(GPR_ERROR, "RPC error: %d: %s", s.error_code(),
+                s.error_message().c_str());
+      }
+      gpr_atm_no_barrier_fetch_add(errors, static_cast<gpr_atm>(1));
+    } else {
+      EXPECT_EQ(response.message(), request.message());
     }
-    ASSERT_TRUE(s.ok());
   }
 }
 
-typedef ::testing::Types<CommonStressTestSyncServer,
-                         CommonStressTestAsyncServer>
+typedef ::testing::Types<
+    CommonStressTestSyncServer<CommonStressTestInsecure<TestServiceImpl>>,
+    CommonStressTestSyncServer<CommonStressTestInproc<TestServiceImpl, false>>,
+    CommonStressTestSyncServerLowThreadCount<
+        CommonStressTestInproc<TestServiceImpl, true>>,
+    CommonStressTestAsyncServer<
+        CommonStressTestInsecure<grpc::testing::EchoTestService::AsyncService>>,
+    CommonStressTestAsyncServer<CommonStressTestInproc<
+        grpc::testing::EchoTestService::AsyncService, false>>>
     CommonTypes;
 TYPED_TEST_CASE(End2endTest, CommonTypes);
 TYPED_TEST(End2endTest, ThreadStress) {
   this->common_.ResetStub();
   std::vector<std::thread> threads;
+  gpr_atm errors;
+  gpr_atm_rel_store(&errors, static_cast<gpr_atm>(0));
+  threads.reserve(kNumThreads);
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.emplace_back(SendRpc, this->common_.GetStub(), kNumRpcs);
+    threads.emplace_back(SendRpc, this->common_.GetStub(), kNumRpcs,
+                         this->common_.AllowExhaustion(), &errors);
   }
   for (int i = 0; i < kNumThreads; ++i) {
     threads[i].join();
+  }
+  uint64_t error_cnt = static_cast<uint64_t>(gpr_atm_no_barrier_load(&errors));
+  if (error_cnt != 0) {
+    gpr_log(GPR_INFO, "RPC error count: %" PRIu64, error_cnt);
+  }
+  // If this test allows resource exhaustion, expect that it actually sees some
+  if (this->common_.AllowExhaustion()) {
+    EXPECT_GT(error_cnt, static_cast<uint64_t>(0));
   }
 }
 

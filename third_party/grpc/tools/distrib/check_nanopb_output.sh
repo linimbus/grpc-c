@@ -1,35 +1,22 @@
 #!/bin/bash
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 set -ex
 
+readonly NANOPB_ALTS_TMP_OUTPUT="$(mktemp -d)"
+readonly NANOPB_HEALTH_TMP_OUTPUT="$(mktemp -d)"
 readonly NANOPB_TMP_OUTPUT="$(mktemp -d)"
 readonly PROTOBUF_INSTALL_PREFIX="$(mktemp -d)"
 
@@ -65,8 +52,61 @@ readonly LOAD_BALANCER_GRPC_OUTPUT_PATH='src/core/ext/filters/client_channel/lb_
   "$NANOPB_TMP_OUTPUT" \
   "$LOAD_BALANCER_GRPC_OUTPUT_PATH"
 
+./tools/codegen/core/gen_nano_proto.sh \
+  third_party/protobuf/src/google/protobuf/duration.proto \
+  "$NANOPB_TMP_OUTPUT/google/protobuf" \
+  "$LOAD_BALANCER_GRPC_OUTPUT_PATH/google/protobuf"
+
+./tools/codegen/core/gen_nano_proto.sh \
+  third_party/protobuf/src/google/protobuf/timestamp.proto \
+  "$NANOPB_TMP_OUTPUT/google/protobuf" \
+  "$LOAD_BALANCER_GRPC_OUTPUT_PATH/google/protobuf"
+
 # compare outputs to checked compiled code
-if ! diff -r $NANOPB_TMP_OUTPUT src/core/ext/filters/client_channel/lb_policy/grpclb/proto/grpc/lb/v1; then
+if ! diff -r "$NANOPB_TMP_OUTPUT" src/core/ext/filters/client_channel/lb_policy/grpclb/proto/grpc/lb/v1; then
   echo "Outputs differ: $NANOPB_TMP_OUTPUT vs $LOAD_BALANCER_GRPC_OUTPUT_PATH"
   exit 2
 fi
+
+#
+# checks for health.proto
+#
+readonly HEALTH_GRPC_OUTPUT_PATH='src/core/ext/filters/client_channel/health'
+# nanopb-compile the proto to a temp location
+./tools/codegen/core/gen_nano_proto.sh \
+  src/proto/grpc/health/v1/health.proto \
+  "$NANOPB_HEALTH_TMP_OUTPUT" \
+  "$HEALTH_GRPC_OUTPUT_PATH"
+# compare outputs to checked compiled code
+for NANOPB_OUTPUT_FILE in $NANOPB_HEALTH_TMP_OUTPUT/*.pb.*; do
+  if ! diff "$NANOPB_OUTPUT_FILE" "${HEALTH_GRPC_OUTPUT_PATH}/$(basename $NANOPB_OUTPUT_FILE)"; then
+    echo "Outputs differ: $NANOPB_HEALTH_TMP_OUTPUT vs $HEALTH_GRPC_OUTPUT_PATH"
+    exit 2
+  fi
+done
+
+#
+# Checks for handshaker.proto and transport_security_common.proto
+#
+readonly HANDSHAKER_GRPC_OUTPUT_PATH='src/core/tsi/alts/handshaker'
+# nanopb-compile the proto to a temp location
+./tools/codegen/core/gen_nano_proto.sh \
+  src/core/tsi/alts/handshaker/proto/handshaker.proto \
+  "$NANOPB_ALTS_TMP_OUTPUT" \
+  "$HANDSHAKER_GRPC_OUTPUT_PATH"
+./tools/codegen/core/gen_nano_proto.sh \
+  src/core/tsi/alts/handshaker/proto/transport_security_common.proto \
+  "$NANOPB_ALTS_TMP_OUTPUT" \
+  "$HANDSHAKER_GRPC_OUTPUT_PATH"
+./tools/codegen/core/gen_nano_proto.sh \
+  src/core/tsi/alts/handshaker/proto/altscontext.proto \
+  "$NANOPB_ALTS_TMP_OUTPUT" \
+  "$HANDSHAKER_GRPC_OUTPUT_PATH"
+
+# compare outputs to checked compiled code
+for NANOPB_OUTPUT_FILE in $NANOPB_ALTS_TMP_OUTPUT/*.pb.*; do
+  if ! diff "$NANOPB_OUTPUT_FILE" "src/core/tsi/alts/handshaker/$(basename $NANOPB_OUTPUT_FILE)"; then
+    echo "Outputs differ: $NANOPB_ALTS_TMP_OUTPUT vs $HANDSHAKER_GRPC_OUTPUT_PATH"
+    exit 2
+  fi
+done

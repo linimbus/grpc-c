@@ -1,34 +1,20 @@
-# Copyright 2016, Google Inc.
-# All rights reserved.
+# Copyright 2016 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Test of RPCs made against gRPC Python's application-layer API."""
 
 import unittest
+import logging
 
 import grpc
 
@@ -96,33 +82,20 @@ class InvalidMetadataTest(unittest.TestCase):
         request = b'\x07\x08'
         metadata = (('InVaLiD', 'UnaryRequestFutureUnaryResponse'),)
         expected_error_details = "metadata was invalid: %s" % metadata
-        response_future = self._unary_unary.future(request, metadata=metadata)
-        with self.assertRaises(grpc.RpcError) as exception_context:
-            response_future.result()
-        self.assertEqual(exception_context.exception.details(),
-                         expected_error_details)
-        self.assertEqual(exception_context.exception.code(),
-                         grpc.StatusCode.INTERNAL)
-        self.assertEqual(response_future.details(), expected_error_details)
-        self.assertEqual(response_future.code(), grpc.StatusCode.INTERNAL)
+        with self.assertRaises(ValueError) as exception_context:
+            self._unary_unary.future(request, metadata=metadata)
 
     def testUnaryRequestStreamResponse(self):
         request = b'\x37\x58'
         metadata = (('InVaLiD', 'UnaryRequestStreamResponse'),)
         expected_error_details = "metadata was invalid: %s" % metadata
-        response_iterator = self._unary_stream(request, metadata=metadata)
-        with self.assertRaises(grpc.RpcError) as exception_context:
-            next(response_iterator)
-        self.assertEqual(exception_context.exception.details(),
-                         expected_error_details)
-        self.assertEqual(exception_context.exception.code(),
-                         grpc.StatusCode.INTERNAL)
-        self.assertEqual(response_iterator.details(), expected_error_details)
-        self.assertEqual(response_iterator.code(), grpc.StatusCode.INTERNAL)
+        with self.assertRaises(ValueError) as exception_context:
+            self._unary_stream(request, metadata=metadata)
+        self.assertIn(expected_error_details, str(exception_context.exception))
 
     def testStreamRequestBlockingUnaryResponse(self):
-        request_iterator = (b'\x07\x08'
-                            for _ in range(test_constants.STREAM_LENGTH))
+        request_iterator = (
+            b'\x07\x08' for _ in range(test_constants.STREAM_LENGTH))
         metadata = (('InVaLiD', 'StreamRequestBlockingUnaryResponse'),)
         expected_error_details = "metadata was invalid: %s" % metadata
         with self.assertRaises(ValueError) as exception_context:
@@ -130,8 +103,8 @@ class InvalidMetadataTest(unittest.TestCase):
         self.assertIn(expected_error_details, str(exception_context.exception))
 
     def testStreamRequestBlockingUnaryResponseWithCall(self):
-        request_iterator = (b'\x07\x08'
-                            for _ in range(test_constants.STREAM_LENGTH))
+        request_iterator = (
+            b'\x07\x08' for _ in range(test_constants.STREAM_LENGTH))
         metadata = (('InVaLiD', 'StreamRequestBlockingUnaryResponseWithCall'),)
         expected_error_details = "metadata was invalid: %s" % metadata
         multi_callable = _stream_unary_multi_callable(self._channel)
@@ -140,37 +113,24 @@ class InvalidMetadataTest(unittest.TestCase):
         self.assertIn(expected_error_details, str(exception_context.exception))
 
     def testStreamRequestFutureUnaryResponse(self):
-        request_iterator = (b'\x07\x08'
-                            for _ in range(test_constants.STREAM_LENGTH))
+        request_iterator = (
+            b'\x07\x08' for _ in range(test_constants.STREAM_LENGTH))
         metadata = (('InVaLiD', 'StreamRequestFutureUnaryResponse'),)
         expected_error_details = "metadata was invalid: %s" % metadata
-        response_future = self._stream_unary.future(
-            request_iterator, metadata=metadata)
-        with self.assertRaises(grpc.RpcError) as exception_context:
-            response_future.result()
-        self.assertEqual(exception_context.exception.details(),
-                         expected_error_details)
-        self.assertEqual(exception_context.exception.code(),
-                         grpc.StatusCode.INTERNAL)
-        self.assertEqual(response_future.details(), expected_error_details)
-        self.assertEqual(response_future.code(), grpc.StatusCode.INTERNAL)
+        with self.assertRaises(ValueError) as exception_context:
+            self._stream_unary.future(request_iterator, metadata=metadata)
+        self.assertIn(expected_error_details, str(exception_context.exception))
 
     def testStreamRequestStreamResponse(self):
-        request_iterator = (b'\x07\x08'
-                            for _ in range(test_constants.STREAM_LENGTH))
+        request_iterator = (
+            b'\x07\x08' for _ in range(test_constants.STREAM_LENGTH))
         metadata = (('InVaLiD', 'StreamRequestStreamResponse'),)
         expected_error_details = "metadata was invalid: %s" % metadata
-        response_iterator = self._stream_stream(
-            request_iterator, metadata=metadata)
-        with self.assertRaises(grpc.RpcError) as exception_context:
-            next(response_iterator)
-        self.assertEqual(exception_context.exception.details(),
-                         expected_error_details)
-        self.assertEqual(exception_context.exception.code(),
-                         grpc.StatusCode.INTERNAL)
-        self.assertEqual(response_iterator.details(), expected_error_details)
-        self.assertEqual(response_iterator.code(), grpc.StatusCode.INTERNAL)
+        with self.assertRaises(ValueError) as exception_context:
+            self._stream_stream(request_iterator, metadata=metadata)
+        self.assertIn(expected_error_details, str(exception_context.exception))
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
     unittest.main(verbosity=2)

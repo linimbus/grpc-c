@@ -51,14 +51,12 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 /**
- * Immutable sequence of bytes.  Substring is supported by sharing the reference
- * to the immutable underlying bytes, as with {@link String}.  Concatenation is
- * likewise supported without copying (long strings) by building a tree of
- * pieces in {@link RopeByteString}.
- * <p>
- * Like {@link String}, the contents of a {@link ByteString} can never be
- * observed to change, not even in the presence of a data race or incorrect
- * API usage in the client code.
+ * Immutable sequence of bytes. Substring is supported by sharing the reference to the immutable
+ * underlying bytes. Concatenation is likewise supported without copying (long strings) by building
+ * a tree of pieces in {@link RopeByteString}.
+ *
+ * <p>Like {@link String}, the contents of a {@link ByteString} can never be observed to change, not
+ * even in the presence of a data race or incorrect API usage in the client code.
  *
  * @author crazybob@google.com Bob Lee
  * @author kenton@google.com Kenton Varda
@@ -126,14 +124,8 @@ public abstract class ByteString implements Iterable<Byte>, Serializable {
 
   private static final ByteArrayCopier byteArrayCopier;
   static {
-    boolean isAndroid = true;
-    try {
-      Class.forName("android.content.Context");
-    } catch (ClassNotFoundException e) {
-      isAndroid = false;
-    }
-
-    byteArrayCopier = isAndroid ? new SystemByteArrayCopier() : new ArraysByteArrayCopier();
+    byteArrayCopier =
+        Android.isOnAndroidDevice() ? new SystemByteArrayCopier() : new ArraysByteArrayCopier();
   }
 
   /**
@@ -308,6 +300,18 @@ public abstract class ByteString implements Iterable<Byte>, Serializable {
    */
   public static ByteString copyFrom(byte[] bytes) {
     return copyFrom(bytes, 0, bytes.length);
+  }
+
+  /**
+   * Wraps the given bytes into a {@code ByteString}. Intended for internal only usage.
+   */
+  static ByteString wrap(ByteBuffer buffer) {
+    if (buffer.hasArray()) {
+      final int offset = buffer.arrayOffset();
+      return ByteString.wrap(buffer.array(), offset + buffer.position(), buffer.remaining());
+    } else {
+      return new NioByteString(buffer);
+    }
   }
 
   /**
@@ -553,7 +557,9 @@ public abstract class ByteString implements Iterable<Byte>, Serializable {
   // Create a balanced concatenation of the next "length" elements from the
   // iterable.
   private static ByteString balancedConcat(Iterator<ByteString> iterator, int length) {
-    assert length >= 1;
+    if (length < 1) {
+      throw new IllegalArgumentException(String.format("length (%s) must be >= 1", length));
+    }
     ByteString result;
     if (length == 1) {
       result = iterator.next();
@@ -678,6 +684,7 @@ public abstract class ByteString implements Iterable<Byte>, Serializable {
    * @see UnsafeByteOperations#unsafeWriteTo(ByteString, ByteOutput)
    */
   abstract void writeTo(ByteOutput byteOutput) throws IOException;
+
 
   /**
    * Constructs a read-only {@code java.nio.ByteBuffer} whose content
@@ -819,6 +826,7 @@ public abstract class ByteString implements Iterable<Byte>, Serializable {
     protected final boolean isBalanced() {
       return true;
     }
+
 
     /**
      * Check equality of the substring of given length of this object starting at

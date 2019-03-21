@@ -1,48 +1,32 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #include <memory>
 #include <thread>
 
-#include <grpc++/channel.h>
-#include <grpc++/client_context.h>
-#include <grpc++/create_channel.h>
-#include <grpc++/generic/async_generic_service.h>
-#include <grpc++/server.h>
-#include <grpc++/server_builder.h>
-#include <grpc++/server_context.h>
 #include <grpc/grpc.h>
-#include <gtest/gtest.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/client_context.h>
+#include <grpcpp/create_channel.h>
+#include <grpcpp/generic/async_generic_service.h>
+#include <grpcpp/server.h>
+#include <grpcpp/server_builder.h>
+#include <grpcpp/server_context.h>
 
 #include "src/proto/grpc/testing/duplicate/echo_duplicate.grpc.pb.h"
 #include "src/proto/grpc/testing/echo.grpc.pb.h"
@@ -51,12 +35,14 @@
 #include "test/cpp/end2end/test_service_impl.h"
 #include "test/cpp/util/byte_buffer_proto_helper.h"
 
+#include <gtest/gtest.h>
+
 namespace grpc {
 namespace testing {
 
 namespace {
 
-void* tag(int i) { return (void*)(intptr_t)i; }
+void* tag(int i) { return (void*)static_cast<intptr_t>(i); }
 
 bool VerifyReturnSuccess(CompletionQueue* cq, int i) {
   void* got_tag;
@@ -88,6 +74,27 @@ void HandleEcho(Service* service, ServerCompletionQueue* cq, bool dup_service) {
   Verify(cq, 2, true);
 }
 
+// Handlers to handle raw request at a server. To be run in a
+// separate thread. Note that this is the same as the async version, except
+// that the req/resp are ByteBuffers
+template <class Service>
+void HandleRawEcho(Service* service, ServerCompletionQueue* cq,
+                   bool dup_service) {
+  ServerContext srv_ctx;
+  GenericServerAsyncResponseWriter response_writer(&srv_ctx);
+  ByteBuffer recv_buffer;
+  service->RequestEcho(&srv_ctx, &recv_buffer, &response_writer, cq, cq,
+                       tag(1));
+  Verify(cq, 1, true);
+  EchoRequest recv_request;
+  EXPECT_TRUE(ParseFromByteBuffer(&recv_buffer, &recv_request));
+  EchoResponse send_response;
+  send_response.set_message(recv_request.message());
+  auto send_buffer = SerializeToByteBuffer(&send_response);
+  response_writer.Finish(*send_buffer, Status::OK, tag(2));
+  Verify(cq, 2, true);
+}
+
 template <class Service>
 void HandleClientStreaming(Service* service, ServerCompletionQueue* cq) {
   ServerContext srv_ctx;
@@ -103,6 +110,30 @@ void HandleClientStreaming(Service* service, ServerCompletionQueue* cq) {
     srv_stream.Read(&recv_request, tag(i));
   } while (VerifyReturnSuccess(cq, i));
   srv_stream.Finish(send_response, Status::OK, tag(100));
+  Verify(cq, 100, true);
+}
+
+template <class Service>
+void HandleRawClientStreaming(Service* service, ServerCompletionQueue* cq) {
+  ServerContext srv_ctx;
+  ByteBuffer recv_buffer;
+  EchoRequest recv_request;
+  EchoResponse send_response;
+  GenericServerAsyncReader srv_stream(&srv_ctx);
+  service->RequestRequestStream(&srv_ctx, &srv_stream, cq, cq, tag(1));
+  Verify(cq, 1, true);
+  int i = 1;
+  while (true) {
+    i++;
+    srv_stream.Read(&recv_buffer, tag(i));
+    if (!VerifyReturnSuccess(cq, i)) {
+      break;
+    }
+    EXPECT_TRUE(ParseFromByteBuffer(&recv_buffer, &recv_request));
+    send_response.mutable_message()->append(recv_request.message());
+  }
+  auto send_buffer = SerializeToByteBuffer(&send_response);
+  srv_stream.Finish(*send_buffer, Status::OK, tag(100));
   Verify(cq, 100, true);
 }
 
@@ -393,6 +424,61 @@ TEST_F(HybridEnd2endTest, AsyncEcho) {
   echo_handler_thread.join();
 }
 
+TEST_F(HybridEnd2endTest, RawEcho) {
+  typedef EchoTestService::WithRawMethod_Echo<TestServiceImpl> SType;
+  SType service;
+  SetUpServer(&service, nullptr, nullptr);
+  ResetStub();
+  std::thread echo_handler_thread(HandleRawEcho<SType>, &service, cqs_[0].get(),
+                                  false);
+  TestAllMethods();
+  echo_handler_thread.join();
+}
+
+TEST_F(HybridEnd2endTest, RawRequestStream) {
+  typedef EchoTestService::WithRawMethod_RequestStream<TestServiceImpl> SType;
+  SType service;
+  SetUpServer(&service, nullptr, nullptr);
+  ResetStub();
+  std::thread request_stream_handler_thread(HandleRawClientStreaming<SType>,
+                                            &service, cqs_[0].get());
+  TestAllMethods();
+  request_stream_handler_thread.join();
+}
+
+TEST_F(HybridEnd2endTest, AsyncEchoRawRequestStream) {
+  typedef EchoTestService::WithRawMethod_RequestStream<
+      EchoTestService::WithAsyncMethod_Echo<TestServiceImpl>>
+      SType;
+  SType service;
+  SetUpServer(&service, nullptr, nullptr);
+  ResetStub();
+  std::thread echo_handler_thread(HandleEcho<SType>, &service, cqs_[0].get(),
+                                  false);
+  std::thread request_stream_handler_thread(HandleRawClientStreaming<SType>,
+                                            &service, cqs_[1].get());
+  TestAllMethods();
+  request_stream_handler_thread.join();
+  echo_handler_thread.join();
+}
+
+TEST_F(HybridEnd2endTest, GenericEchoRawRequestStream) {
+  typedef EchoTestService::WithRawMethod_RequestStream<
+      EchoTestService::WithGenericMethod_Echo<TestServiceImpl>>
+      SType;
+  SType service;
+  AsyncGenericService generic_service;
+  SetUpServer(&service, nullptr, &generic_service);
+  ResetStub();
+  std::thread generic_handler_thread(HandleGenericCall, &generic_service,
+                                     cqs_[0].get());
+  std::thread request_stream_handler_thread(HandleRawClientStreaming<SType>,
+                                            &service, cqs_[1].get());
+  TestAllMethods();
+  generic_handler_thread.join();
+  request_stream_handler_thread.join();
+}
+
 TEST_F(HybridEnd2endTest, AsyncEchoRequestStream) {
   typedef EchoTestService::WithAsyncMethod_RequestStream<
       EchoTestService::WithAsyncMethod_Echo<TestServiceImpl>>
@@ -535,7 +621,7 @@ class SplitResponseStreamDupPkg
     stream->NextMessageSize(&next_msg_sz);
     gpr_log(GPR_INFO, "Split Streamed Next Message Size is %u", next_msg_sz);
     GPR_ASSERT(stream->Read(&req));
-    for (int i = 0; i < kNumResponseStreamsMsgs; i++) {
+    for (int i = 0; i < kServerDefaultResponseStreamsToSend; i++) {
       resp.set_message(req.message() + grpc::to_string(i) + "_dup");
       GPR_ASSERT(stream->Write(resp));
     }
@@ -575,7 +661,7 @@ class FullySplitStreamedDupPkg
     stream->NextMessageSize(&next_msg_sz);
     gpr_log(GPR_INFO, "Split Streamed Next Message Size is %u", next_msg_sz);
     GPR_ASSERT(stream->Read(&req));
-    for (int i = 0; i < kNumResponseStreamsMsgs; i++) {
+    for (int i = 0; i < kServerDefaultResponseStreamsToSend; i++) {
       resp.set_message(req.message() + grpc::to_string(i) + "_dup");
       GPR_ASSERT(stream->Write(resp));
     }
@@ -627,7 +713,7 @@ class FullyStreamedDupPkg : public duplicate::EchoTestService::StreamedService {
     stream->NextMessageSize(&next_msg_sz);
     gpr_log(GPR_INFO, "Split Streamed Next Message Size is %u", next_msg_sz);
     GPR_ASSERT(stream->Read(&req));
-    for (int i = 0; i < kNumResponseStreamsMsgs; i++) {
+    for (int i = 0; i < kServerDefaultResponseStreamsToSend; i++) {
       resp.set_message(req.message() + grpc::to_string(i) + "_dup");
       GPR_ASSERT(stream->Write(resp));
     }

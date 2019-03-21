@@ -1,48 +1,33 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 #ifndef GRPC_CORE_LIB_TRANSPORT_METADATA_H
 #define GRPC_CORE_LIB_TRANSPORT_METADATA_H
 
+#include <grpc/support/port_platform.h>
+
 #include <grpc/grpc.h>
 #include <grpc/slice.h>
-#include <grpc/support/useful.h>
 
-#include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/debug/trace.h"
+#include "src/core/lib/gpr/useful.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+extern grpc_core::DebugOnlyTraceFlag grpc_trace_metadata;
 
 /* This file provides a mechanism for tracking metadata through the grpc stack.
    It's not intended for consumption outside of the library.
@@ -109,58 +94,54 @@ struct grpc_mdelem {
   uintptr_t payload;
 };
 
-#define GRPC_MDELEM_DATA(md) \
-  ((grpc_mdelem_data *)((md).payload & ~(uintptr_t)3))
+#define GRPC_MDELEM_DATA(md) ((grpc_mdelem_data*)((md).payload & ~(uintptr_t)3))
 #define GRPC_MDELEM_STORAGE(md) \
   ((grpc_mdelem_data_storage)((md).payload & (uintptr_t)3))
+#ifdef __cplusplus
+#define GRPC_MAKE_MDELEM(data, storage) \
+  (grpc_mdelem{((uintptr_t)(data)) | ((uintptr_t)storage)})
+#else
 #define GRPC_MAKE_MDELEM(data, storage) \
   ((grpc_mdelem){((uintptr_t)(data)) | ((uintptr_t)storage)})
+#endif
 #define GRPC_MDELEM_IS_INTERNED(md)          \
   ((grpc_mdelem_data_storage)((md).payload & \
                               (uintptr_t)GRPC_MDELEM_STORAGE_INTERNED_BIT))
 
 /* Unrefs the slices. */
-grpc_mdelem grpc_mdelem_from_slices(grpc_exec_ctx *exec_ctx, grpc_slice key,
-                                    grpc_slice value);
+grpc_mdelem grpc_mdelem_from_slices(const grpc_slice& key,
+                                    const grpc_slice& value);
 
 /* Cheaply convert a grpc_metadata to a grpc_mdelem; may use the grpc_metadata
    object as backing storage (so lifetimes should align) */
-grpc_mdelem grpc_mdelem_from_grpc_metadata(grpc_exec_ctx *exec_ctx,
-                                           grpc_metadata *metadata);
+grpc_mdelem grpc_mdelem_from_grpc_metadata(grpc_metadata* metadata);
 
 /* Does not unref the slices; if a new non-interned mdelem is needed, allocates
    one if compatible_external_backing_store is NULL, or uses
    compatible_external_backing_store if it is non-NULL (in which case it's the
    users responsibility to ensure that it outlives usage) */
 grpc_mdelem grpc_mdelem_create(
-    grpc_exec_ctx *exec_ctx, grpc_slice key, grpc_slice value,
-    grpc_mdelem_data *compatible_external_backing_store);
+    const grpc_slice& key, const grpc_slice& value,
+    grpc_mdelem_data* compatible_external_backing_store);
 
 bool grpc_mdelem_eq(grpc_mdelem a, grpc_mdelem b);
 
-size_t grpc_mdelem_get_size_in_hpack_table(grpc_mdelem elem);
-
 /* Mutator and accessor for grpc_mdelem user data. The destructor function
    is used as a type tag and is checked during user_data fetch. */
-void *grpc_mdelem_get_user_data(grpc_mdelem md,
-                                void (*if_destroy_func)(void *));
-void *grpc_mdelem_set_user_data(grpc_mdelem md, void (*destroy_func)(void *),
-                                void *user_data);
+void* grpc_mdelem_get_user_data(grpc_mdelem md, void (*if_destroy_func)(void*));
+void* grpc_mdelem_set_user_data(grpc_mdelem md, void (*destroy_func)(void*),
+                                void* user_data);
 
-/* Reference counting */
-//#define GRPC_METADATA_REFCOUNT_DEBUG
-#ifdef GRPC_METADATA_REFCOUNT_DEBUG
+#ifndef NDEBUG
 #define GRPC_MDELEM_REF(s) grpc_mdelem_ref((s), __FILE__, __LINE__)
-#define GRPC_MDELEM_UNREF(exec_ctx, s) \
-  grpc_mdelem_unref((exec_ctx), (s), __FILE__, __LINE__)
-grpc_mdelem grpc_mdelem_ref(grpc_mdelem md, const char *file, int line);
-void grpc_mdelem_unref(grpc_exec_ctx *exec_ctx, grpc_mdelem md,
-                       const char *file, int line);
+#define GRPC_MDELEM_UNREF(s) grpc_mdelem_unref((s), __FILE__, __LINE__)
+grpc_mdelem grpc_mdelem_ref(grpc_mdelem md, const char* file, int line);
+void grpc_mdelem_unref(grpc_mdelem md, const char* file, int line);
 #else
 #define GRPC_MDELEM_REF(s) grpc_mdelem_ref((s))
-#define GRPC_MDELEM_UNREF(exec_ctx, s) grpc_mdelem_unref((exec_ctx), (s))
+#define GRPC_MDELEM_UNREF(s) grpc_mdelem_unref((s))
 grpc_mdelem grpc_mdelem_ref(grpc_mdelem md);
-void grpc_mdelem_unref(grpc_exec_ctx *exec_ctx, grpc_mdelem md);
+void grpc_mdelem_unref(grpc_mdelem md);
 #endif
 
 #define GRPC_MDKEY(md) (GRPC_MDELEM_DATA(md)->key)
@@ -177,10 +158,6 @@ void grpc_mdelem_unref(grpc_exec_ctx *exec_ctx, grpc_mdelem md);
 #define GRPC_MDSTR_KV_HASH(k_hash, v_hash) (GPR_ROTL((k_hash), 2) ^ (v_hash))
 
 void grpc_mdctx_global_init(void);
-void grpc_mdctx_global_shutdown(grpc_exec_ctx *exec_ctx);
-
-#ifdef __cplusplus
-}
-#endif
+void grpc_mdctx_global_shutdown();
 
 #endif /* GRPC_CORE_LIB_TRANSPORT_METADATA_H */

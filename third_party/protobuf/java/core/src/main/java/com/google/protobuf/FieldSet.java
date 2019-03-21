@@ -30,8 +30,9 @@
 
 package com.google.protobuf;
 
-import com.google.protobuf.LazyField.LazyIterator;
+import static com.google.protobuf.Internal.checkNotNull;
 
+import com.google.protobuf.LazyField.LazyIterator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -100,6 +101,11 @@ final class FieldSet<FieldDescriptorType extends
   }
   @SuppressWarnings("rawtypes")
   private static final FieldSet DEFAULT_INSTANCE = new FieldSet(true);
+
+  /** Returns {@code true} if empty, {@code false} otherwise. */
+  boolean isEmpty() {
+    return fields.isEmpty();
+  }
 
   /** Make this FieldSet immutable from this point forward. */
   @SuppressWarnings("unchecked")
@@ -219,6 +225,7 @@ final class FieldSet<FieldDescriptorType extends
     }
     return fields.entrySet().iterator();
   }
+
 
   /**
    * Useful for implementing
@@ -384,9 +391,7 @@ final class FieldSet<FieldDescriptorType extends
    */
   private static void verifyType(final WireFormat.FieldType type,
                                  final Object value) {
-    if (value == null) {
-      throw new NullPointerException();
-    }
+    checkNotNull(value);
 
     boolean isValid = false;
     switch (type.getJavaType()) {

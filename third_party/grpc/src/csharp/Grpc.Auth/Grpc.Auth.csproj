@@ -15,15 +15,20 @@
     <PackageTags>gRPC RPC Protocol HTTP/2 Auth OAuth2</PackageTags>
     <PackageProjectUrl>https://github.com/grpc/grpc</PackageProjectUrl>
     <PackageLicenseUrl>https://github.com/grpc/grpc/blob/master/LICENSE</PackageLicenseUrl>
-    <NetStandardImplicitPackageVersion Condition=" '$(TargetFramework)' == 'netstandard1.5' ">1.6.0</NetStandardImplicitPackageVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <Import Project="..\Grpc.Core\SourceLink.csproj.include" />
 
   <ItemGroup>
     <Compile Include="..\Grpc.Core\Version.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../Grpc.Core/Grpc.Core.csproj" />
+    <ProjectReference Include="../Grpc.Core/Grpc.Core.csproj">
+      <PrivateAssets>None</PrivateAssets>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>

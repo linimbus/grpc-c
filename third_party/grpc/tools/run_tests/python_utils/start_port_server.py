@@ -1,36 +1,22 @@
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import print_function
 
-from six.moves import urllib
-import jobset
+from . import jobset
+
+import six.moves.urllib.request as request
 import logging
 import os
 import socket
@@ -39,9 +25,9 @@ import sys
 import tempfile
 import time
 
-
 # must be synchronized with test/core/utils/port_server_client.h
 _PORT_SERVER_PORT = 32766
+
 
 def start_port_server():
     # check if a compatible port server is running
@@ -50,9 +36,8 @@ def start_port_server():
     # otherwise, leave it up
     try:
         version = int(
-            urllib.request.urlopen(
-                'http://localhost:%d/version_number' % _PORT_SERVER_PORT,
-                timeout=10).read())
+            request.urlopen('http://localhost:%d/version_number' %
+                            _PORT_SERVER_PORT).read())
         logging.info('detected port server running version %d', version)
         running = True
     except Exception as e:
@@ -61,16 +46,16 @@ def start_port_server():
     if running:
         current_version = int(
             subprocess.check_output([
-                sys.executable, os.path.abspath(
-                    'tools/run_tests/python_utils/port_server.py'),
+                sys.executable,
+                os.path.abspath('tools/run_tests/python_utils/port_server.py'),
                 'dump_version'
             ]))
         logging.info('my port server is version %d', current_version)
         running = (version >= current_version)
         if not running:
             logging.info('port_server version mismatch: killing the old one')
-            urllib.request.urlopen('http://localhost:%d/quitquitquit' %
-                                   _PORT_SERVER_PORT).read()
+            request.urlopen(
+                'http://localhost:%d/quitquitquit' % _PORT_SERVER_PORT).read()
             time.sleep(1)
     if not running:
         fd, logfile = tempfile.mkstemp()
@@ -79,7 +64,8 @@ def start_port_server():
         args = [
             sys.executable,
             os.path.abspath('tools/run_tests/python_utils/port_server.py'),
-            '-p', '%d' % _PORT_SERVER_PORT, '-l', logfile
+            '-p',
+            '%d' % _PORT_SERVER_PORT, '-l', logfile
         ]
         env = dict(os.environ)
         env['BUILD_ID'] = 'pleaseDontKillMeJenkins'
@@ -109,9 +95,8 @@ def start_port_server():
                 # try one final time: maybe another build managed to start one
                 time.sleep(1)
                 try:
-                    urllib.request.urlopen(
-                        'http://localhost:%d/get' % _PORT_SERVER_PORT,
-                        timeout=1).read()
+                    request.urlopen(
+                        'http://localhost:%d/get' % _PORT_SERVER_PORT).read()
                     logging.info(
                         'last ditch attempt to contact port server succeeded')
                     break
@@ -123,14 +108,14 @@ def start_port_server():
                     sys.exit(1)
             try:
                 port_server_url = 'http://localhost:%d/get' % _PORT_SERVER_PORT
-                urllib.request.urlopen(port_server_url, timeout=1).read()
+                request.urlopen(port_server_url).read()
                 logging.info('port server is up and ready')
                 break
             except socket.timeout:
                 logging.exception('while waiting for port_server')
                 time.sleep(1)
                 waits += 1
-            except urllib.error.URLError:
+            except IOError:
                 logging.exception('while waiting for port_server')
                 time.sleep(1)
                 waits += 1

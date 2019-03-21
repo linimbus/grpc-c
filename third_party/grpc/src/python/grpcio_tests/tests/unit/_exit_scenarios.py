@@ -1,36 +1,22 @@
-# Copyright 2016, Google Inc.
-# All rights reserved.
+# Copyright 2016 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Defines a number of module-scope gRPC scenarios to test clean exit."""
 
 import argparse
 import threading
 import time
+import logging
 
 import grpc
 
@@ -176,6 +162,7 @@ def infinite_request_iterator():
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
     parser = argparse.ArgumentParser()
     parser.add_argument('scenario', type=str)
     parser.add_argument(
@@ -183,11 +170,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.scenario == UNSTARTED_SERVER:
-        server = grpc.server(DaemonPool())
+        server = grpc.server(DaemonPool(), options=(('grpc.so_reuseport', 0),))
         if args.wait_for_interrupt:
             time.sleep(WAIT_TIME)
     elif args.scenario == RUNNING_SERVER:
-        server = grpc.server(DaemonPool())
+        server = grpc.server(DaemonPool(), options=(('grpc.so_reuseport', 0),))
         port = server.add_insecure_port('[::]:0')
         server.start()
         if args.wait_for_interrupt:
@@ -202,7 +189,7 @@ if __name__ == '__main__':
         if args.wait_for_interrupt:
             time.sleep(WAIT_TIME)
     elif args.scenario == POLL_CONNECTIVITY:
-        server = grpc.server(DaemonPool())
+        server = grpc.server(DaemonPool(), options=(('grpc.so_reuseport', 0),))
         port = server.add_insecure_port('[::]:0')
         server.start()
         channel = grpc.insecure_channel('localhost:%d' % port)
@@ -216,7 +203,7 @@ if __name__ == '__main__':
 
     else:
         handler = GenericHandler()
-        server = grpc.server(DaemonPool())
+        server = grpc.server(DaemonPool(), options=(('grpc.so_reuseport', 0),))
         port = server.add_insecure_port('[::]:0')
         server.add_generic_rpc_handlers((handler,))
         server.start()

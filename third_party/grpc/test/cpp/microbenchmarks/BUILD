@@ -1,108 +1,184 @@
-# Copyright 2017, Google Inc.
-# All rights reserved.
+# Copyright 2017 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-licenses(["notice"])  # 3-clause BSD
+licenses(["notice"])  # Apache v2
 
-cc_test(
+load("//bazel:grpc_build_system.bzl", "grpc_cc_test", "grpc_cc_library", "grpc_cc_binary", "grpc_package")
+
+grpc_package(name = "test/cpp/microbenchmarks")
+
+grpc_cc_test(
     name = "noop-benchmark",
     srcs = ["noop-benchmark.cc"],
-    linkopts = ["-pthread"],
-    deps = ["//external:benchmark"],
+    external_deps = [
+        "benchmark",
+    ],
+    deps = ["//test/core/util:gpr_test_util"],
 )
 
-cc_library(
+grpc_cc_library(
     name = "helpers",
+    testonly = 1,
     srcs = ["helpers.cc"],
     hdrs = [
         "fullstack_context_mutators.h",
         "fullstack_fixtures.h",
         "helpers.h",
     ],
-    linkopts = ["-pthread"],
+    external_deps = [
+        "benchmark",
+    ],
     deps = [
-        "//:grpc++",
-        "//external:benchmark",
+        "//:grpc++_unsecure",
         "//src/proto/grpc/testing:echo_proto",
-        "//test/core/util:grpc_test_util",
+        "//test/core/util:grpc_test_util_unsecure",
+        "//test/cpp/util:test_config",
     ],
 )
 
-cc_test(
+grpc_cc_binary(
     name = "bm_closure",
+    testonly = 1,
     srcs = ["bm_closure.cc"],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_binary(
+    name = "bm_arena",
+    testonly = 1,
+    srcs = ["bm_arena.cc"],
+    deps = [":helpers"],
+)
+
+grpc_cc_binary(
+    name = "bm_channel",
+    testonly = 1,
+    srcs = ["bm_channel.cc"],
+    deps = [":helpers"],
+)
+
+grpc_cc_binary(
+    name = "bm_call_create",
+    testonly = 1,
+    srcs = ["bm_call_create.cc"],
+    deps = [":helpers"],
+)
+
+grpc_cc_binary(
     name = "bm_cq",
+    testonly = 1,
     srcs = ["bm_cq.cc"],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_binary(
     name = "bm_cq_multiple_threads",
+    testonly = 1,
     srcs = ["bm_cq_multiple_threads.cc"],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_binary(
     name = "bm_error",
+    testonly = 1,
     srcs = ["bm_error.cc"],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_library(
+    name = "fullstack_streaming_ping_pong_h",
+    testonly = 1,
+    hdrs = [
+        "fullstack_streaming_ping_pong.h",
+    ],
+    deps = [":helpers"],
+)
+
+grpc_cc_binary(
     name = "bm_fullstack_streaming_ping_pong",
-    srcs = ["bm_fullstack_streaming_ping_pong.cc"],
+    testonly = 1,
+    srcs = [
+        "bm_fullstack_streaming_ping_pong.cc",
+    ],
+    deps = [":fullstack_streaming_ping_pong_h"],
+)
+
+grpc_cc_library(
+    name = "fullstack_streaming_pump_h",
+    testonly = 1,
+    hdrs = [
+        "fullstack_streaming_pump.h",
+    ],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_binary(
     name = "bm_fullstack_streaming_pump",
-    srcs = ["bm_fullstack_streaming_pump.cc"],
-    deps = [":helpers"],
+    testonly = 1,
+    srcs = [
+        "bm_fullstack_streaming_pump.cc",
+    ],
+    deps = [":fullstack_streaming_pump_h"],
 )
 
-cc_test(
+grpc_cc_binary(
     name = "bm_fullstack_trickle",
+    testonly = 1,
     srcs = ["bm_fullstack_trickle.cc"],
     deps = [":helpers"],
 )
 
-cc_test(
-    name = "bm_fullstack_unary_ping_pong",
-    srcs = ["bm_fullstack_unary_ping_pong.cc"],
+grpc_cc_library(
+    name = "fullstack_unary_ping_pong_h",
+    testonly = 1,
+    hdrs = [
+        "fullstack_unary_ping_pong.h",
+    ],
     deps = [":helpers"],
 )
 
-cc_test(
+grpc_cc_binary(
+    name = "bm_fullstack_unary_ping_pong",
+    testonly = 1,
+    srcs = [
+        "bm_fullstack_unary_ping_pong.cc",
+    ],
+    deps = [":fullstack_unary_ping_pong_h"],
+)
+
+grpc_cc_binary(
     name = "bm_metadata",
+    testonly = 1,
     srcs = ["bm_metadata.cc"],
     deps = [":helpers"],
+)
+
+grpc_cc_binary(
+    name = "bm_chttp2_hpack",
+    testonly = 1,
+    srcs = ["bm_chttp2_hpack.cc"],
+    deps = [":helpers"],
+)
+
+grpc_cc_binary(
+    name = "bm_opencensus_plugin",
+    testonly = 1,
+    srcs = ["bm_opencensus_plugin.cc"],
+    language = "C++",
+    deps = [
+        ":helpers",
+        "//:grpc_opencensus_plugin",
+        "//src/proto/grpc/testing:echo_proto",
+    ],
 )

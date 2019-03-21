@@ -1,33 +1,18 @@
 #region Copyright notice and license
 
-// Copyright 2015, Google Inc.
-// All rights reserved.
+// Copyright 2015 gRPC authors.
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #endregion
 
@@ -38,6 +23,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Grpc.Core.Utils;
 
 namespace Grpc.Core.Internal
 {
@@ -46,11 +32,20 @@ namespace Grpc.Core.Internal
     /// </summary>
     internal static class PlatformApis
     {
+        const string UnityEngineApplicationClassName = "UnityEngine.Application, UnityEngine";
+        const string XamarinAndroidObjectClassName = "Java.Lang.Object, Mono.Android";
+        const string XamarinIOSObjectClassName = "Foundation.NSObject, Xamarin.iOS";
+
         static readonly bool isLinux;
         static readonly bool isMacOSX;
         static readonly bool isWindows;
         static readonly bool isMono;
         static readonly bool isNetCore;
+        static readonly bool isUnity;
+        static readonly bool isUnityIOS;
+        static readonly bool isXamarin;
+        static readonly bool isXamarinIOS;
+        static readonly bool isXamarinAndroid;
 
         static PlatformApis()
         {
@@ -69,6 +64,28 @@ namespace Grpc.Core.Internal
             isNetCore = false;
 #endif
             isMono = Type.GetType("Mono.Runtime") != null;
+
+            // Unity
+            var unityApplicationClass = Type.GetType(UnityEngineApplicationClassName);
+            if (unityApplicationClass != null)
+            {
+                isUnity = true;
+                // Consult value of Application.platform via reflection
+                // https://docs.unity3d.com/ScriptReference/Application-platform.html
+                var platformProperty = unityApplicationClass.GetTypeInfo().GetProperty("platform");
+                var unityRuntimePlatform = platformProperty?.GetValue(null)?.ToString();
+                isUnityIOS = (unityRuntimePlatform == "IPhonePlayer");
+            }
+            else
+            {
+                isUnity = false;
+                isUnityIOS = false;
+            }
+
+            // Xamarin
+            isXamarinIOS = Type.GetType(XamarinIOSObjectClassName) != null;
+            isXamarinAndroid = Type.GetType(XamarinAndroidObjectClassName) != null;
+            isXamarin = isXamarinIOS || isXamarinAndroid;
         }
 
         public static bool IsLinux
@@ -92,6 +109,47 @@ namespace Grpc.Core.Internal
         }
 
         /// <summary>
+        /// true if running on Unity platform.
+        /// </summary>
+        public static bool IsUnity
+        {
+            get { return isUnity; }
+        }
+
+        /// <summary>
+        /// true if running on Unity iOS, false otherwise.
+        /// </summary>
+        public static bool IsUnityIOS
+        {
+            get { return isUnityIOS; }
+        }
+
+        /// <summary>
+        /// true if running on a Xamarin platform (either Xamarin.Android or Xamarin.iOS),
+        /// false otherwise.
+        /// </summary>
+        public static bool IsXamarin
+        {
+            get { return isXamarin; }
+        }
+
+        /// <summary>
+        /// true if running on Xamarin.iOS, false otherwise.
+        /// </summary>
+        public static bool IsXamarinIOS
+        {
+            get { return isXamarinIOS; }
+        }
+
+        /// <summary>
+        /// true if running on Xamarin.Android, false otherwise.
+        /// </summary>
+        public static bool IsXamarinAndroid
+        {
+            get { return isXamarinAndroid; }
+        }
+
+        /// <summary>
         /// true if running on .NET Core (CoreCLR), false otherwise.
         /// </summary>
         public static bool IsNetCore
@@ -102,6 +160,22 @@ namespace Grpc.Core.Internal
         public static bool Is64Bit
         {
             get { return IntPtr.Size == 8; }
+        }
+
+        /// <summary>
+        /// Returns <c>UnityEngine.Application.platform</c> as a string.
+        /// See https://docs.unity3d.com/ScriptReference/Application-platform.html for possible values.
+        /// Value is obtained via reflection to avoid compile-time dependency on Unity.
+        /// This method should only be called if <c>IsUnity</c> is <c>true</c>.
+        /// </summary>
+        public static string GetUnityRuntimePlatform()
+        {
+            GrpcPreconditions.CheckState(IsUnity, "Not running on Unity.");
+#if NETSTANDARD1_5
+            return Type.GetType(UnityEngineApplicationClassName).GetTypeInfo().GetProperty("platform").GetValue(null).ToString();
+#else
+            return Type.GetType(UnityEngineApplicationClassName).GetProperty("platform").GetValue(null).ToString();
+#endif
         }
 
         [DllImport("libc")]

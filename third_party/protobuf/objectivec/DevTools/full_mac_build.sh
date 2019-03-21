@@ -45,6 +45,8 @@ OPTIONS:
          Skip the invoke of Xcode to test the runtime on OS X.
    --skip-objc-conformance
          Skip the Objective C conformance tests (run on OS X).
+   --xcode-quiet
+         Pass -quiet to xcodebuild.
 
 EOF
 }
@@ -83,6 +85,7 @@ DO_XCODE_OSX_TESTS=yes
 DO_XCODE_DEBUG=yes
 DO_XCODE_RELEASE=yes
 DO_OBJC_CONFORMANCE_TESTS=yes
+XCODE_QUIET=no
 while [[ $# != 0 ]]; do
   case "${1}" in
     -h | --help )
@@ -123,6 +126,9 @@ while [[ $# != 0 ]]; do
       ;;
     --skip-objc-conformance )
       DO_OBJC_CONFORMANCE_TESTS=no
+      ;;
+    --xcode-quiet )
+      XCODE_QUIET=yes
       ;;
     -*)
       echo "ERROR: Unknown option: ${1}" 1>&2
@@ -217,49 +223,65 @@ if ! objectivec/DevTools/pddm.py --dry-run objectivec/*.[hm] objectivec/Tests/*.
   exit 1
 fi
 
+readonly XCODE_VERSION_LINE="$(xcodebuild -version | grep Xcode\  )"
+readonly XCODE_VERSION="${XCODE_VERSION_LINE/Xcode /}"  # drop the prefix.
+
 if [[ "${DO_XCODE_IOS_TESTS}" == "yes" ]] ; then
   XCODEBUILD_TEST_BASE_IOS=(
     xcodebuild
       -project objectivec/ProtocolBuffers_iOS.xcodeproj
       -scheme ProtocolBuffers
   )
+  if [[ "${XCODE_QUIET}" == "yes" ]] ; then
+    XCODEBUILD_TEST_BASE_IOS+=( -quiet )
+  fi
   # Don't need to worry about form factors or retina/non retina;
   # just pick a mix of OS Versions and 32/64 bit.
   # NOTE: Different Xcode have different simulated hardware/os support.
-  readonly XCODE_VERSION_LINE="$(xcodebuild -version | grep Xcode\  )"
-  readonly XCODE_VERSION="${XCODE_VERSION_LINE/Xcode /}"  # drop the prefix.
-  IOS_SIMULATOR_NAME="Simulator"
   case "${XCODE_VERSION}" in
     6.* )
-      echo "ERROR: Xcode 6.3/6.4 no longer supported for building, please use 7.0 or higher." 1>&2
+      echo "ERROR: Xcode 6.3/6.4 no longer supported for building, please use 8.0 or higher." 1>&2
       exit 10
       ;;
-    7.1* )
+    7.* )
+      echo "ERROR: Xcode 7.x no longer supported for building, please use 8.0 or higher." 1>&2
+      exit 11
+      ;;
+    8.0* )
+      # The 8.* device seem to hang and never start under Xcode 8.
       XCODEBUILD_TEST_BASE_IOS+=(
-          -destination "platform=iOS Simulator,name=iPhone 4s,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPhone 6,OS=9.0" # 64bit
-          -destination "platform=iOS Simulator,name=iPad 2,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPad Air,OS=9.0" # 64bit
+          -destination "platform=iOS Simulator,name=iPhone 4s,OS=9.0" # 32bit
+          -destination "platform=iOS Simulator,name=iPhone 7,OS=10.0" # 64bit
       )
       ;;
-    7.2* )
+    8.[1-3]* )
       XCODEBUILD_TEST_BASE_IOS+=(
           -destination "platform=iOS Simulator,name=iPhone 4s,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPhone 6,OS=9.2" # 64bit
-          -destination "platform=iOS Simulator,name=iPad 2,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPad Air,OS=9.2" # 64bit
+          -destination "platform=iOS Simulator,name=iPhone 7,OS=latest" # 64bit
       )
       ;;
-    7.3* )
+    9.[0-2]* )
       XCODEBUILD_TEST_BASE_IOS+=(
           -destination "platform=iOS Simulator,name=iPhone 4s,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPhone 6,OS=9.3" # 64bit
-          -destination "platform=iOS Simulator,name=iPad 2,OS=8.1" # 32bit
-          -destination "platform=iOS Simulator,name=iPad Air,OS=9.3" # 64bit
+          -destination "platform=iOS Simulator,name=iPhone 7,OS=latest" # 64bit
+          # 9.0-9.2 all seem to often fail running destinations in parallel
+          -disable-concurrent-testing
+      )
+      ;;
+    9.3* )
+      XCODEBUILD_TEST_BASE_IOS+=(
+          # Xcode 9.3 chokes targeting iOS 8.x - http://www.openradar.me/39335367
+          -destination "platform=iOS Simulator,name=iPhone 4s,OS=9.0" # 32bit
+          -destination "platform=iOS Simulator,name=iPhone 7,OS=latest" # 64bit
+          # 9.3 also seems to often fail running destinations in parallel
+          -disable-concurrent-testing
       )
       ;;
     * )
-      echo "Time to update the simulator targets for Xcode ${XCODE_VERSION}"
+      echo ""
+      echo "ATTENTION: Time to update the simulator targets for Xcode ${XCODE_VERSION}"
+      echo ""
+      echo "Build aborted!"
       exit 2
       ;;
   esac
@@ -272,7 +294,7 @@ if [[ "${DO_XCODE_IOS_TESTS}" == "yes" ]] ; then
     "${XCODEBUILD_TEST_BASE_IOS[@]}" -configuration Release test
   fi
   # Don't leave the simulator in the developer's face.
-  killall "${IOS_SIMULATOR_NAME}"
+  killall Simulator 2> /dev/null || true
 fi
 if [[ "${DO_XCODE_OSX_TESTS}" == "yes" ]] ; then
   XCODEBUILD_TEST_BASE_OSX=(
@@ -282,6 +304,20 @@ if [[ "${DO_XCODE_OSX_TESTS}" == "yes" ]] ; then
       # Since the ObjC 2.0 Runtime is required, 32bit OS X isn't supported.
       -destination "platform=OS X,arch=x86_64" # 64bit
   )
+  if [[ "${XCODE_QUIET}" == "yes" ]] ; then
+    XCODEBUILD_TEST_BASE_OSX+=( -quiet )
+  fi
+  case "${XCODE_VERSION}" in
+    6.* )
+      echo "ERROR: Xcode 6.3/6.4 no longer supported for building, please use 8.0 or higher." 1>&2
+      exit 10
+      ;;
+    7.* )
+      echo "ERROR: The unittests include Swift code that is now Swift 3.0." 1>&2
+      echo "ERROR: Xcode 8.0 or higher is required to build the test suite, but the library works with Xcode 7.x." 1>&2
+      exit 11
+      ;;
+  esac
   if [[ "${DO_XCODE_DEBUG}" == "yes" ]] ; then
     header "Doing Xcode OS X build/tests - Debug"
     "${XCODEBUILD_TEST_BASE_OSX[@]}" -configuration Debug test

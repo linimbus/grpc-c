@@ -1,41 +1,27 @@
 /*
  *
- * Copyright 2015-2016, Google Inc.
- * All rights reserved.
+ * Copyright 2015-2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <set>
 
-#include <grpc++/impl/codegen/config_protobuf.h>
+#include <grpcpp/impl/codegen/config_protobuf.h>
 
 #include <gflags/gflags.h>
 #include <grpc/support/log.h>
@@ -44,6 +30,9 @@
 #include "test/cpp/qps/driver.h"
 #include "test/cpp/qps/parse_json.h"
 #include "test/cpp/qps/report.h"
+#include "test/cpp/qps/server.h"
+#include "test/cpp/util/test_config.h"
+#include "test/cpp/util/test_credentials_provider.h"
 
 DEFINE_string(scenarios_file, "",
               "JSON file containing an array of Scenario objects");
@@ -72,18 +61,30 @@ DEFINE_string(qps_server_target_override, "",
               "Override QPS server target to configure in client configs."
               "Only applicable if there is a single benchmark server.");
 
+DEFINE_string(json_file_out, "", "File to write the JSON output to.");
+
+DEFINE_string(credential_type, grpc::testing::kInsecureCredentialsType,
+              "Credential type for communication with workers");
+DEFINE_bool(run_inproc, false, "Perform an in-process transport test");
+DEFINE_int32(
+    median_latency_collection_interval_millis, 0,
+    "Specifies the period between gathering latency medians in "
+    "milliseconds. The medians will be logged out on the client at the "
+    "end of the benchmark run. If 0, this periodic collection is disabled.");
+
 namespace grpc {
 namespace testing {
 
 static std::unique_ptr<ScenarioResult> RunAndReport(const Scenario& scenario,
                                                     bool* success) {
   std::cerr << "RUNNING SCENARIO: " << scenario.name() << "\n";
-  auto result =
-      RunScenario(scenario.client_config(), scenario.num_clients(),
-                  scenario.server_config(), scenario.num_servers(),
-                  scenario.warmup_seconds(), scenario.benchmark_seconds(),
-                  scenario.spawn_local_worker_count(),
-                  FLAGS_qps_server_target_override.c_str());
+  auto result = RunScenario(
+      scenario.client_config(), scenario.num_clients(),
+      scenario.server_config(), scenario.num_servers(),
+      scenario.warmup_seconds(), scenario.benchmark_seconds(),
+      !FLAGS_run_inproc ? scenario.spawn_local_worker_count() : -2,
+      FLAGS_qps_server_target_override, FLAGS_credential_type, FLAGS_run_inproc,
+      FLAGS_median_latency_collection_interval_millis);
 
   // Amend the result with scenario config. Eventually we should adjust
   // RunScenario contract so we don't need to touch the result here.
@@ -94,12 +95,21 @@ static std::unique_ptr<ScenarioResult> RunAndReport(const Scenario& scenario,
   GetReporter()->ReportLatency(*result);
   GetReporter()->ReportTimes(*result);
   GetReporter()->ReportCpuUsage(*result);
+  GetReporter()->ReportPollCount(*result);
+  GetReporter()->ReportQueriesPerCpuSec(*result);
 
   for (int i = 0; *success && i < result->client_success_size(); i++) {
     *success = result->client_success(i);
   }
   for (int i = 0; *success && i < result->server_success_size(); i++) {
     *success = result->server_success(i);
+  }
+
+  if (FLAGS_json_file_out != "") {
+    std::ofstream json_outfile;
+    json_outfile.open(FLAGS_json_file_out);
+    json_outfile << "{\"qps\": " << result->summary().qps() << "}\n";
+    json_outfile.close();
   }
 
   return result;
@@ -176,7 +186,7 @@ static bool QpsDriver() {
   if (scfile) {
     // Read the json data from disk
     FILE* json_file = fopen(FLAGS_scenarios_file.c_str(), "r");
-    GPR_ASSERT(json_file != NULL);
+    GPR_ASSERT(json_file != nullptr);
     fseek(json_file, 0, SEEK_END);
     long len = ftell(json_file);
     char* data = new char[len];
@@ -188,7 +198,7 @@ static bool QpsDriver() {
   } else if (scjson) {
     json = FLAGS_scenarios_json.c_str();
   } else if (FLAGS_quit) {
-    return RunQuit();
+    return RunQuit(FLAGS_credential_type);
   }
 
   // Parse into an array of scenarios
@@ -223,7 +233,7 @@ static bool QpsDriver() {
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc::testing::InitBenchmark(&argc, &argv, true);
+  grpc::testing::InitTest(&argc, &argv, true);
 
   bool ok = grpc::testing::QpsDriver();
 

@@ -1,31 +1,16 @@
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 require_relative '../grpc'
 
@@ -47,7 +32,7 @@ module GRPC
 
     # @return [Proc] { |instance| marshalled(instance) }
     def marshal_proc
-      proc { |o| o.class.method(marshal_method).call(o).to_s }
+      proc { |o| o.class.send(marshal_method, o).to_s }
     end
 
     # @param [:input, :output] target determines whether to produce the an
@@ -57,48 +42,90 @@ module GRPC
     # @return [Proc] An unmarshal proc { |marshalled(instance)| instance }
     def unmarshal_proc(target)
       fail ArgumentError unless [:input, :output].include?(target)
-      unmarshal_class = method(target).call
+      unmarshal_class = send(target)
       unmarshal_class = unmarshal_class.type if unmarshal_class.is_a? Stream
-      proc { |o| unmarshal_class.method(unmarshal_method).call(o) }
+      proc { |o| unmarshal_class.send(unmarshal_method, o) }
     end
 
-    def handle_request_response(active_call, mth)
-      req = active_call.remote_read
-      resp = mth.call(req, active_call.single_req_view)
-      active_call.server_unary_response(
-        resp, trailing_metadata: active_call.output_metadata)
+    def handle_request_response(active_call, mth, inter_ctx)
+      req = active_call.read_unary_request
+      call = active_call.single_req_view
+
+      inter_ctx.intercept!(
+        :request_response,
+        method: mth,
+        call: call,
+        request: req
+      ) do
+        resp = mth.call(req, call)
+        active_call.server_unary_response(
+          resp,
+          trailing_metadata: active_call.output_metadata
+        )
+      end
     end
 
-    def handle_client_streamer(active_call,  mth)
-      resp = mth.call(active_call.multi_req_view)
-      active_call.server_unary_response(
-        resp, trailing_metadata: active_call.output_metadata)
+    def handle_client_streamer(active_call, mth, inter_ctx)
+      call = active_call.multi_req_view
+
+      inter_ctx.intercept!(
+        :client_streamer,
+        method: mth,
+        call: call
+      ) do
+        resp = mth.call(call)
+        active_call.server_unary_response(
+          resp,
+          trailing_metadata: active_call.output_metadata
+        )
+      end
     end
 
-    def handle_server_streamer(active_call, mth)
-      req = active_call.remote_read
-      replys = mth.call(req, active_call.single_req_view)
-      replys.each { |r| active_call.remote_send(r) }
+    def handle_server_streamer(active_call, mth, inter_ctx)
+      req = active_call.read_unary_request
+      call = active_call.single_req_view
+
+      inter_ctx.intercept!(
+        :server_streamer,
+        method: mth,
+        call: call,
+        request: req
+      ) do
+        replies = mth.call(req, call)
+        replies.each { |r| active_call.remote_send(r) }
+        send_status(active_call, OK, 'OK', active_call.output_metadata)
+      end
+    end
+
+    ##
+    # @param [GRPC::ActiveCall] active_call
+    # @param [Method] mth
+    # @param [Array<GRPC::InterceptionContext>] inter_ctx
+    #
+    def handle_bidi_streamer(active_call, mth, inter_ctx)
+      active_call.run_server_bidi(mth, inter_ctx)
       send_status(active_call, OK, 'OK', active_call.output_metadata)
     end
 
-    def handle_bidi_streamer(active_call, mth)
-      active_call.run_server_bidi(mth)
-      send_status(active_call, OK, 'OK', active_call.output_metadata)
-    end
-
-    def run_server_method(active_call, mth)
+    ##
+    # @param [GRPC::ActiveCall] active_call The current active call object
+    #   for the request
+    # @param [Method] mth The current RPC method being called
+    # @param [GRPC::InterceptionContext] inter_ctx The interception context
+    #   being executed
+    #
+    def run_server_method(active_call, mth, inter_ctx = InterceptionContext.new)
       # While a server method is running, it might be cancelled, its deadline
       # might be reached, the handler could throw an unknown error, or a
       # well-behaved handler could throw a StatusError.
       if request_response?
-        handle_request_response(active_call, mth)
+        handle_request_response(active_call, mth, inter_ctx)
       elsif client_streamer?
-        handle_client_streamer(active_call, mth)
+        handle_client_streamer(active_call, mth, inter_ctx)
       elsif server_streamer?
-        handle_server_streamer(active_call, mth)
+        handle_server_streamer(active_call, mth, inter_ctx)
       else  # is a bidi_stream
-        handle_bidi_streamer(active_call, mth)
+        handle_bidi_streamer(active_call, mth, inter_ctx)
       end
     rescue BadStatus => e
       # this is raised by handlers that want GRPC to send an application error
@@ -114,9 +141,13 @@ module GRPC
       # event.  Send a status of deadline exceeded
       GRPC.logger.warn("late call: #{active_call}")
       send_status(active_call, DEADLINE_EXCEEDED, 'late')
-    rescue StandardError => e
+    rescue StandardError, NotImplementedError => e
       # This will usuaally be an unhandled error in the handling code.
       # Send back a UNKNOWN status to the client
+      #
+      # Note: this intentionally does not map NotImplementedError to
+      # UNIMPLEMENTED because NotImplementedError is intended for low-level
+      # OS interaction (e.g. syscalls) not supported by the current OS.
       GRPC.logger.warn("failed handler: #{active_call}; sending status:UNKNOWN")
       GRPC.logger.warn(e)
       send_status(active_call, UNKNOWN, "#{e.class}: #{e.message}")

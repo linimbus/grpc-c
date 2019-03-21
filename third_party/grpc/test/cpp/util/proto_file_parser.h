@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -36,7 +21,7 @@
 
 #include <memory>
 
-#include <grpc++/channel.h>
+#include <grpcpp/channel.h>
 
 #include "test/cpp/util/config_grpc_cli.h"
 #include "test/cpp/util/proto_reflection_descriptor_database.h"
@@ -51,7 +36,7 @@ class ProtoFileParser {
   // The parser will search proto files using the server reflection service
   // provided on the given channel. The given protofiles in a source tree rooted
   // from proto_path will also be searched.
-  ProtoFileParser(std::shared_ptr<grpc::Channel> channel,
+  ProtoFileParser(const std::shared_ptr<grpc::Channel>& channel,
                   const grpc::string& proto_path,
                   const grpc::string& protofiles);
 
@@ -68,21 +53,49 @@ class ProtoFileParser {
   // used as the argument of Stub::Call()
   grpc::string GetFormattedMethodName(const grpc::string& method);
 
-  grpc::string GetSerializedProtoFromMethod(
-      const grpc::string& method, const grpc::string& text_format_proto,
-      bool is_request);
+  /// Converts a text or json string to its binary proto representation for the
+  /// given method's input or return type.
+  /// \param method the name of the method (does not need to be fully qualified
+  ///        name)
+  /// \param formatted_proto the text- or json-formatted proto string
+  /// \param is_request if \c true the resolved type is that of the input
+  ///        parameter of the method, otherwise it is the output type
+  /// \param is_json_format if \c true the \c formatted_proto is treated as a
+  ///        json-formatted proto, otherwise it is treated as a text-formatted
+  ///        proto
+  /// \return the serialised binary proto represenation of \c formatted_proto
+  grpc::string GetSerializedProtoFromMethod(const grpc::string& method,
+                                            const grpc::string& formatted_proto,
+                                            bool is_request,
+                                            bool is_json_format);
 
-  grpc::string GetTextFormatFromMethod(const grpc::string& method,
-                                       const grpc::string& serialized_proto,
-                                       bool is_request);
-
+  /// Converts a text or json string to its proto representation for the given
+  /// message type.
+  /// \param formatted_proto the text- or json-formatted proto string
+  /// \return the serialised binary proto represenation of \c formatted_proto
   grpc::string GetSerializedProtoFromMessageType(
       const grpc::string& message_type_name,
-      const grpc::string& text_format_proto);
+      const grpc::string& formatted_proto, bool is_json_format);
 
-  grpc::string GetTextFormatFromMessageType(
+  /// Converts a binary proto string to its text or json string representation
+  /// for the given method's input or return type.
+  /// \param method the name of the method (does not need to be a fully
+  ///        qualified name)
+  /// \param the serialised binary proto representation of type
+  ///        \c message_type_name
+  /// \return the text- or json-formatted proto string of \c serialized_proto
+  grpc::string GetFormattedStringFromMethod(
+      const grpc::string& method, const grpc::string& serialized_proto,
+      bool is_request, bool is_json_format);
+
+  /// Converts a binary proto string to its text or json string representation
+  /// for the given message type.
+  /// \param the serialised binary proto representation of type
+  ///        \c message_type_name
+  /// \return the text- or json-formatted proto string of \c serialized_proto
+  grpc::string GetFormattedStringFromMessageType(
       const grpc::string& message_type_name,
-      const grpc::string& serialized_proto);
+      const grpc::string& serialized_proto, bool is_json_format);
 
   bool IsStreaming(const grpc::string& method, bool is_request);
 

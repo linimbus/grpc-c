@@ -1,4 +1,2 @@
-JsonInput.FieldNameWithMixedCases.JsonOutput
-JsonInput.FieldNameWithMixedCases.ProtobufOutput
-JsonInput.FieldNameWithMixedCases.Validator
-JsonInput.OriginalProtoFieldName.JsonOutput
+Recommended.Proto3.JsonInput.BytesFieldBase64Url.JsonOutput
+Recommended.Proto3.JsonInput.BytesFieldBase64Url.ProtobufOutput
