@@ -139,6 +139,7 @@ static int
 gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np) 
 {
     grpc_call_error e;
+    grpc_completion_queue_attributes attr;
 
     /*
      * Create a context that gets returned when this is method is called
@@ -152,7 +153,11 @@ gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np)
     context->gcc_event.gce_type = GRPC_C_EVENT_RPC_INIT;
     context->gcc_event.gce_data = context;
 
-    context->gcc_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_PLUCK;
+    attr.cq_polling_type = GRPC_CQ_DEFAULT_POLLING;
+
+    context->gcc_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
     grpc_c_grpc_set_cq_callback(context->gcc_cq, gc_handle_server_event);
     context->gcc_data.gccd_server = server;
     context->gcc_state = GRPC_C_SERVER_CALLBACK_WAIT;
@@ -778,10 +783,11 @@ grpc_c_register_disconnect_callback (grpc_c_server_t *server,
 /*
  * Creates a grpc server for given host
  */
-static grpc_c_server_t *
-gc_server_create_internal (const char *host, grpc_server_credentials *creds, 
-			   grpc_channel_args *args)
+static grpc_c_server_t * gc_server_create_internal(const char *host, grpc_server_credentials *creds, 
+			                                       grpc_channel_args *args)
 {
+    grpc_completion_queue_attributes attr;
+    
     /*
      * Server structure stuff
      */
@@ -791,7 +797,11 @@ gc_server_create_internal (const char *host, grpc_server_credentials *creds,
     }
     memset(server, 0, sizeof(grpc_c_server_t));
 
-    server->gcs_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_NEXT;
+    attr.cq_polling_type = GRPC_CQ_DEFAULT_POLLING;
+
+    server->gcs_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
     grpc_c_grpc_set_cq_callback(server->gcs_cq, gc_handle_server_event);
     server->gcs_server = grpc_server_create(args, NULL);
     server->gcs_host = strdup(host);

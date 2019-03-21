@@ -32,6 +32,7 @@ gc_client_create_by_host (const char *host, const char *id,
 			  grpc_channel_args *args)
 {
     grpc_c_client_t *client;
+    grpc_completion_queue_attributes attr;
 
     if (host == NULL || id == NULL) {
 	gpr_log(GPR_ERROR, "Invalid hostname or client-id");
@@ -78,10 +79,14 @@ gc_client_create_by_host (const char *host, const char *id,
     gpr_mu_init(&client->gcc_lock);
     gpr_cv_init(&client->gcc_shutdown_cv);
 
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_NEXT;
+    attr.cq_polling_type = GRPC_CQ_NON_LISTENING;
+
     /*
      * Register server connect and disconnect callbacks
      */
-    client->gcc_channel_connectivity_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    client->gcc_channel_connectivity_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
     if (client->gcc_channel_connectivity_cq == NULL) {
 	gpr_log(GPR_ERROR, "Failed to create completion queue for server "
 		"connect/disconnect notifications");
@@ -571,7 +576,9 @@ gc_client_prepare_async_ops (grpc_c_client_t *client,
 {
     int mdcount = 0;
     char *mdkey, *mdvalue;
+    grpc_completion_queue_attributes attr;
     grpc_c_context_t *context = grpc_c_context_init(NULL, 1);
+
     if (context == NULL) {
 	gpr_log(GPR_ERROR, "Failed to create context");
 	return NULL;
@@ -584,8 +591,12 @@ gc_client_prepare_async_ops (grpc_c_client_t *client,
     }
     bzero(context->gcc_method, sizeof(struct grpc_c_method_t));
 
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_NEXT;
+    attr.cq_polling_type = GRPC_CQ_NON_LISTENING;
+
     context->gcc_state = GRPC_C_CLIENT_START;
-    context->gcc_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    context->gcc_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
     grpc_c_grpc_set_cq_callback(context->gcc_cq, gc_handle_client_event);
 
     int op_count = context->gcc_op_count;
@@ -711,7 +722,9 @@ gc_client_prepare_sync_ops (grpc_c_client_t *client,
 {
     int mdcount = 0;
     char *mdkey, *mdvalue;
+    grpc_completion_queue_attributes attr;
     grpc_c_context_t *context = grpc_c_context_init(NULL, 1);
+    
     if (context == NULL) {
 	gpr_log(GPR_ERROR, "Failed to create context");
 	return NULL;
@@ -750,8 +763,12 @@ gc_client_prepare_sync_ops (grpc_c_client_t *client,
     }
     gpr_mu_init(context->gcc_lock);
 
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_PLUCK;
+    attr.cq_polling_type = GRPC_CQ_NON_LISTENING;
+
     context->gcc_state = GRPC_C_CLIENT_START;
-    context->gcc_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    context->gcc_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
     grpc_c_grpc_set_cq_callback(context->gcc_cq, gc_handle_client_event);
 
     int op_count = context->gcc_op_count;
@@ -868,7 +885,9 @@ gc_client_prepare_unary_ops (grpc_c_client_t *client,
 {
     int mdcount = 0;
     char *mdkey, *mdvalue;
+    grpc_completion_queue_attributes attr;
     grpc_c_context_t *context = grpc_c_context_init(NULL, 1);
+    
     if (context == NULL) {
 	gpr_log(GPR_ERROR, "Failed to create context");
 	return NULL;
@@ -881,8 +900,13 @@ gc_client_prepare_unary_ops (grpc_c_client_t *client,
     }
     bzero(context->gcc_method, sizeof(struct grpc_c_method_t));
 
+    attr.version = 1;
+    attr.cq_completion_type = GRPC_CQ_PLUCK;
+    attr.cq_polling_type = GRPC_CQ_NON_LISTENING;
+
     context->gcc_state = GRPC_C_CLIENT_START;
-    context->gcc_cq = grpc_completion_queue_create(NULL,NULL,NULL);
+    context->gcc_cq = grpc_completion_queue_create(grpc_completion_queue_factory_lookup(&attr), &attr,NULL);
+    
     grpc_c_grpc_set_cq_callback(context->gcc_cq, gc_handle_client_event);
 
     int op_count = context->gcc_op_count;
