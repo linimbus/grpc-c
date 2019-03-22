@@ -14,13 +14,13 @@ chmod -R +x *
 
 echo "Installing Protobuf"
 cd third_party/protobuf
-./autogen.sh && ./configure --prefix=${pfx} && make && sudo make prefix=${pfix} install
+./autogen.sh && ./configure --prefix=${pfx} && make -j 4&& sudo make prefix=${pfix} install
 sudo ldconfig
 cd ../../
 
 echo "Building protobuf-c"
 cd third_party/protobuf-c
-./autogen.sh && ./configure --prefix=${pfix} && make && sudo make install
+./autogen.sh && ./configure --prefix=${pfix} && make -j 4&& sudo make install
 cd ../../
 
 echo "Building gRPC"
