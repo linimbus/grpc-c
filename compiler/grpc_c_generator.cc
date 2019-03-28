@@ -154,7 +154,7 @@ bool GrpcCGenerator::Generate(const FileDescriptor* file,
 
   // Generate header.
   {
-    boost::scoped_ptr<io::ZeroCopyOutputStream> output(
+    std::unique_ptr<io::ZeroCopyOutputStream> output(
       output_directory->Open(basename + ".grpc-c.h"));
     io::Printer printer(output.get(), '$');
     file_generator.GenerateHeader(&printer);
@@ -162,7 +162,7 @@ bool GrpcCGenerator::Generate(const FileDescriptor* file,
 
   // Generate cc file.
   {
-    boost::scoped_ptr<io::ZeroCopyOutputStream> output(
+    std::unique_ptr<io::ZeroCopyOutputStream> output(
       output_directory->Open(basename + ".grpc-c.c"));
     io::Printer printer(output.get(), '$');
     file_generator.GenerateSource(&printer);
@@ -170,7 +170,7 @@ bool GrpcCGenerator::Generate(const FileDescriptor* file,
 
   // Generate service cc file.
   {
-    boost::scoped_ptr<io::ZeroCopyOutputStream> output(
+    std::unique_ptr<io::ZeroCopyOutputStream> output(
       output_directory->Open(basename + ".grpc-c.service.c"));
     io::Printer printer(output.get(), '$');
     file_generator.GenerateServiceSource(&printer);

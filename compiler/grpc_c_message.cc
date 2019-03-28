@@ -67,8 +67,6 @@
 
 #include <algorithm>
 #include <map>
-#include <boost/scoped_array.hpp>
-#include <boost/scoped_ptr.hpp>
 
 #include "grpc_c_message.h"
 #include "grpc_c_helpers.h"
@@ -91,7 +89,7 @@ GrpcCMessageGenerator::GrpcCMessageGenerator(const Descriptor* descriptor,
 					     const string& dllexport_decl) 
     : descriptor_(descriptor), 
     dllexport_decl_(dllexport_decl), 
-    grpc_c_nested_generators_(new boost::scoped_ptr<GrpcCMessageGenerator>[
+    grpc_c_nested_generators_(new std::unique_ptr<GrpcCMessageGenerator>[
 			       descriptor->nested_type_count()]) {
 
   for (int i = 0; i < descriptor->nested_type_count(); i++) {
