@@ -5,11 +5,34 @@
 
 #include <grpc-c/grpc-c.h>
 
+
+#ifdef __cplusplus
+#if __cplusplus
+extern "C"{
+#endif
+#endif /* __cplusplus */
+
+
+
+
+
+
+void * grpc_c_alloc()
+{
+
+}
+
+void grpc_c_free()
+{
+
+}
+
+
 /*
  * User provided allocate and free functions
  */
-static grpc_c_memory_alloc_func_t *alloc_fn = NULL;
-static grpc_c_memory_free_func_t *free_fn = NULL;
+static grpc_c_memory_alloc_func_t grpc_c_alloc_func = NULL;
+static grpc_c_memory_free_func_t  groc_c_free_func = NULL;
 
 /*
  * Signatures for protobuf allocate and free function callbacks
@@ -20,41 +43,39 @@ typedef void (protobuf_c_free_func_t)(void *allocator_data, void *data);
 /*
  * Sets allocate function callback
  */
-void 
-grpc_c_set_memory_alloc_function (grpc_c_memory_alloc_func_t *fn)
+void grpc_c_set_memory_function( grpc_c_memory_alloc_func_t allocfunc, grpc_c_memory_free_func_t freefunc)
 {
-    alloc_fn = fn;
+    grpc_c_alloc_func = allocfunc;
+    groc_c_free_func  = freefunc;
 }
 
-/*
- * Sets free function callback
- */
-void 
-grpc_c_set_memory_free_function (grpc_c_memory_free_func_t *fn)
-{
-    free_fn = fn;
-}
 
 /*
  * Takes pointer to allocator and fills alloc, free functions if available.
  * Else return NULL
  */
-ProtobufCAllocator *
-grpc_c_get_protobuf_c_allocator (grpc_c_context_t *context, 
-				 ProtobufCAllocator *allocator)
+ProtobufCAllocator * grpc_c_get_protobuf_c_allocator(grpc_c_context_t *context, ProtobufCAllocator *allocator)
 {
-    if (alloc_fn && free_fn && allocator) {
-	allocator->alloc = (protobuf_c_alloc_func_t *)alloc_fn;
-	allocator->free = (protobuf_c_free_func_t *)free_fn;
+    if (grpc_c_alloc_func && groc_c_free_func && allocator) {
 
-	if (context) {
-	    allocator->allocator_data = (void *)context;
-	} else {
-	    allocator->allocator_data = NULL;
-	}
+		allocator->alloc = (protobuf_c_alloc_func_t *)grpc_c_alloc_func;
+		allocator->free  = (protobuf_c_free_func_t *)groc_c_free_func;
 
-	return allocator;
+		if (context) {
+			allocator->allocator_data = (void *)context;
+		} else {
+			allocator->allocator_data = NULL;
+		}
+
+		return allocator;
     }
 
     return NULL;
 }
+
+
+#ifdef __cplusplus
+#if __cplusplus
+}
+#endif
+#endif /* __cplusplus */

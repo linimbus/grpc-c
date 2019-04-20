@@ -42,19 +42,19 @@ int gpr_parse_bytes_to_uint32(const char* data, size_t length,
                               uint32_t* result);
 
 /* Minimum buffer size for calling ltoa */
-#define GPR_LTOA_MIN_BUFSIZE (3 * sizeof(long))
+#define GPR_LTOA_MIN_GRPC_C_BUFSIZE (3 * sizeof(long))
 
 /* Convert a long to a string in base 10; returns the length of the
    output string (or 0 on failure).
-   output must be at least GPR_LTOA_MIN_BUFSIZE bytes long. */
+   output must be at least GPR_LTOA_MIN_GRPC_C_BUFSIZE bytes long. */
 int gpr_ltoa(long value, char* output);
 
 /* Minimum buffer size for calling int64toa */
-#define GPR_INT64TOA_MIN_BUFSIZE (3 * sizeof(int64_t))
+#define GPR_INT64TOA_MIN_GRPC_C_BUFSIZE (3 * sizeof(int64_t))
 
 /* Convert an int64 to a string in base 10; returns the length of the
 output string (or 0 on failure).
-output must be at least GPR_INT64TOA_MIN_BUFSIZE bytes long.
+output must be at least GPR_INT64TOA_MIN_GRPC_C_BUFSIZE bytes long.
 NOTE: This function ensures sufficient bit width even on Win x64,
 where long is 32bit is size.*/
 int int64_ttoa(int64_t value, char* output);

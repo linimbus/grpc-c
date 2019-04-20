@@ -21,8 +21,8 @@
  * Forward declaration
  */
 static int gc_handle_server_event (grpc_completion_queue *cq);
-static void gc_schedule_callback (grpc_completion_queue *cq, 
-				  grpc_c_server_t *server); 
+static void gc_schedule_callback (grpc_completion_queue *cq,
+				  grpc_c_server_t *server);
 
 /*
  * Opaque data used with grpc_c recv close event
@@ -45,29 +45,29 @@ struct gcs_thread_data_t {
  */
 static void
 grpc_c_register_method_callbacks (grpc_c_server_t *server, const char *name,
-				  grpc_c_service_callback_t *cb, 
-				  grpc_c_method_data_pack_t *input_packer, 
-				  grpc_c_method_data_unpack_t *input_unpacker, 
-				  grpc_c_method_data_free_t *input_free, 
-				  grpc_c_method_data_pack_t *output_packer, 
-				  grpc_c_method_data_unpack_t *output_unpacker, 
+				  grpc_c_service_callback_t *cb,
+				  grpc_c_method_data_pack_t *input_packer,
+				  grpc_c_method_data_unpack_t *input_unpacker,
+				  grpc_c_method_data_free_t *input_free,
+				  grpc_c_method_data_pack_t *output_packer,
+				  grpc_c_method_data_unpack_t *output_unpacker,
 				  grpc_c_method_data_free_t *output_free)
 {
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_name 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_name
 	= gpr_strdup(name);
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_handler.gcmfh_server 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_handler.gcmfh_server
 	= cb;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_packer 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_packer
 	= input_packer;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_unpacker 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_unpacker
 	= input_unpacker;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_free 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_input_free
 	= input_free;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_packer 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_packer
 	= output_packer;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_unpacker 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_unpacker
 	= output_unpacker;
-    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_free 
+    server->gcs_method_funcs[server->gcs_method_count].gcmf_output_free
 	= output_free;
 
     server->gcs_method_count++;
@@ -77,19 +77,19 @@ grpc_c_register_method_callbacks (grpc_c_server_t *server, const char *name,
  * Registers a service method with its callback and data functions. Returns 1
  * on failure, 0 on success
  */
-int 
-grpc_c_register_method (grpc_c_server_t *server, const char *method, 
-			int client_streaming, int server_streaming, 
-			grpc_c_service_callback_t *handler, 
-			grpc_c_method_data_pack_t *input_packer, 
-			grpc_c_method_data_unpack_t *input_unpacker, 
-			grpc_c_method_data_free_t *input_free, 
-			grpc_c_method_data_pack_t *output_packer, 
-			grpc_c_method_data_unpack_t *output_unpacker, 
+int
+grpc_c_register_method (grpc_c_server_t *server, const char *method,
+			int client_streaming, int server_streaming,
+			grpc_c_service_callback_t *handler,
+			grpc_c_method_data_pack_t *input_packer,
+			grpc_c_method_data_unpack_t *input_unpacker,
+			grpc_c_method_data_free_t *input_free,
+			grpc_c_method_data_pack_t *output_packer,
+			grpc_c_method_data_unpack_t *output_unpacker,
 			grpc_c_method_data_free_t *output_free)
 {
-    void *tag = grpc_server_register_method(server->gcs_server, method, 
-					    server->gcs_host, 
+    void *tag = grpc_server_register_method(server->gcs_server, method,
+					    server->gcs_host,
 					    GRPC_SRM_PAYLOAD_NONE, 0);
     if (tag == NULL) {
 	gpr_log(GPR_ERROR, "Failed to register method %s", method);
@@ -115,8 +115,8 @@ grpc_c_register_method (grpc_c_server_t *server, const char *method,
     /*
      * Handler and data callbacks
      */
-    grpc_c_register_method_callbacks(server, method, handler, input_packer, 
-				     input_unpacker, input_free, output_packer, 
+    grpc_c_register_method_callbacks(server, method, handler, input_packer,
+				     input_unpacker, input_free, output_packer,
 				     output_unpacker, output_free);
 
     return 0;
@@ -126,7 +126,7 @@ grpc_c_register_method (grpc_c_server_t *server, const char *method,
  * Finishes read operations and clears payload buffer
  */
 static int
-gc_read_ops_finish (grpc_c_context_t *context, grpc_c_status_t *status UNUSED, 
+gc_read_ops_finish (grpc_c_context_t *context, grpc_c_status_t *status UNUSED,
 		    uint32_t flags UNUSED)
 {
     grpc_byte_buffer_destroy(context->gcc_payload);
@@ -136,7 +136,7 @@ gc_read_ops_finish (grpc_c_context_t *context, grpc_c_status_t *status UNUSED,
 }
 
 static int
-gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np) 
+gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np)
 {
     grpc_call_error e;
     grpc_completion_queue_attributes attr;
@@ -166,14 +166,14 @@ gc_register_grpc_method (grpc_c_server_t *server, struct grpc_c_method_t *np)
 
 
     if (!server->gcs_shutdown) {
-	e = grpc_server_request_registered_call(server->gcs_server, 
-						np->gcm_tag, 
-						&context->gcc_call, 
-						&context->gcc_deadline, 
-						context->gcc_metadata, 
-						NULL, 
-						context->gcc_cq, 
-						server->gcs_cq, 
+	e = grpc_server_request_registered_call(server->gcs_server,
+						np->gcm_tag,
+						&context->gcc_call,
+						&context->gcc_deadline,
+						context->gcc_metadata,
+						NULL,
+						context->gcc_cq,
+						server->gcs_cq,
 						&context->gcc_event);
 
 	if (e != GRPC_CALL_OK) {
@@ -196,7 +196,7 @@ gc_reregister_method (grpc_c_server_t *server, int method_id)
 {
     struct grpc_c_method_t *np;
 
-    for (np = server->gcs_method_list_head.lh_first; np != NULL; 
+    for (np = server->gcs_method_list_head.lh_first; np != NULL;
 	 np = np->gcm_list.le_next) {
 	if (np->gcm_method_id == method_id) break;
     }
@@ -210,7 +210,7 @@ gc_reregister_method (grpc_c_server_t *server, int method_id)
 }
 
 /*
- * Prepares context to be passed to RPC handler. Registers another request for 
+ * Prepares context to be passed to RPC handler. Registers another request for
  * this call before proceeding to call the service implementation
  */
 static int
@@ -223,7 +223,7 @@ gc_prepare_server_callback (grpc_c_context_t *context)
     struct grpc_c_method_t *method = context->gcc_method;
     int method_id = method->gcm_method_id;
 
-    grpc_c_stream_handler_t *stream_handler 
+    grpc_c_stream_handler_t *stream_handler
 	= gpr_malloc(sizeof(grpc_c_stream_handler_t));
     if (stream_handler == NULL) {
 	gpr_log(GPR_ERROR, "Failed to allocate memory for stream handler");
@@ -234,10 +234,10 @@ gc_prepare_server_callback (grpc_c_context_t *context)
     /*
      * Fill in packer/unpacker functions for input and output
      */
-    if (context->gcc_data.gccd_server 
+    if (context->gcc_data.gccd_server
 	&& context->gcc_data.gccd_server->gcs_method_funcs) {
-	memcpy(context->gcc_method_funcs, 
-	       &context->gcc_data.gccd_server->gcs_method_funcs[method_id], 
+	memcpy(context->gcc_method_funcs,
+	       &context->gcc_data.gccd_server->gcs_method_funcs[method_id],
 	       sizeof(grpc_c_method_funcs_t));
     }
 
@@ -264,7 +264,7 @@ gc_prepare_server_callback (grpc_c_context_t *context)
 	return 1;
     }
     gcs_rc_data->op.op = GRPC_OP_RECV_CLOSE_ON_SERVER;
-    gcs_rc_data->op.data.recv_close_on_server.cancelled 
+    gcs_rc_data->op.data.recv_close_on_server.cancelled
 	= &context->gcc_client_cancel;
     gcs_rc_data->op.flags = 0;
     gcs_rc_data->op.reserved = NULL;
@@ -275,7 +275,7 @@ gc_prepare_server_callback (grpc_c_context_t *context)
     gcev->gce_refcount++;
 
     gpr_mu_lock(context->gcc_lock);
-    grpc_call_error e = grpc_call_start_batch(context->gcc_call, 
+    grpc_call_error e = grpc_call_start_batch(context->gcc_call,
 					      &gcs_rc_data->op, 1, gcev, NULL);
     gpr_mu_unlock(context->gcc_lock);
 
@@ -297,7 +297,7 @@ gc_prepare_server_callback (grpc_c_context_t *context)
  * Extracts client-id from metadata. Returns NULL if unavailable
  */
 const char *
-grpc_c_get_client_id (grpc_c_context_t *context) 
+grpc_c_get_client_id (grpc_c_context_t *context)
 {
     const char *client_id = "";
 
@@ -316,14 +316,14 @@ grpc_c_get_client_id (grpc_c_context_t *context)
  * Gets context from event and handles it depending on the state
  */
 static void
-gc_handle_server_complete_op (grpc_c_context_t *context, int success) 
+gc_handle_server_complete_op (grpc_c_context_t *context, int success)
 {
     const char *client_id = grpc_c_get_client_id(context);
 
     /*
      * Set if disconnect callback is available and not already set
      */
-    if (context->gcc_state != GRPC_C_SERVER_CONTEXT_NOOP && context->gcc_call 
+    if (context->gcc_state != GRPC_C_SERVER_CONTEXT_NOOP && context->gcc_call
 	&& context->gcc_data.gccd_server->gcs_client_disconnect_cb) {
 	grpc_c_grpc_set_disconnect_cb(context->gcc_call, context->gcc_data
 				    .gccd_server->gcs_client_disconnect_cb);
@@ -342,7 +342,7 @@ gc_handle_server_complete_op (grpc_c_context_t *context, int success)
 	     * If we are not shutting down, register for next RPC
 	     */
 	    if (!context->gcc_data.gccd_server->gcs_shutdown) {
-		gc_reregister_method(context->gcc_data.gccd_server, 
+		gc_reregister_method(context->gcc_data.gccd_server,
 				     context->gcc_method->gcm_method_id);
 	    }
 
@@ -366,7 +366,7 @@ gc_handle_server_complete_op (grpc_c_context_t *context, int success)
 	 * not, this is the right time to call with client-id. We need to do
 	 * this if we are using grpc with libisc2 or jtask
 	 */
-	if (context->gcc_call && client_id != NULL 
+	if (context->gcc_call && client_id != NULL
 	    && grpc_c_get_type() > GRPC_THREADS) {
 	    /*
 	     * If client-id is not set in transport, we wouldn't have
@@ -391,7 +391,7 @@ gc_handle_server_complete_op (grpc_c_context_t *context, int success)
     } else if (context->gcc_state == GRPC_C_SERVER_CONTEXT_CLEANUP) {
 	/*
 	 * We have successfully finished sending write finish ops, we can go
-	 * ahead cleanup the context. Otherwise try resending write finish ops 
+	 * ahead cleanup the context. Otherwise try resending write finish ops
 	 */
 	if (success || context->gcc_call_cancelled) {
 	    context->gcc_state == GRPC_C_SERVER_CONTEXT_NOOP;
@@ -408,7 +408,7 @@ gc_handle_server_complete_op (grpc_c_context_t *context, int success)
 	    grpc_c_context_free(context);
 	    server->gcs_running_cb--;
 	    if (gc_trace) {
-		gpr_log(GPR_DEBUG, "Decrementing running callback %d\n", 
+		gpr_log(GPR_DEBUG, "Decrementing running callback %d\n",
 			server->gcs_running_cb);
 	    }
 	    gpr_mu_unlock(&server->gcs_lock);
@@ -431,8 +431,8 @@ gc_handle_server_complete_op (grpc_c_context_t *context, int success)
 /*
  * Internal function that handles server events
  */
-static int 
-gc_handle_server_event_internal (grpc_completion_queue *cq, 
+static int
+gc_handle_server_event_internal (grpc_completion_queue *cq,
 				 grpc_c_server_t *server, gpr_timespec ts)
 {
     grpc_event ev;
@@ -485,74 +485,74 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
 		    gcev->gce_data = NULL;
 		} else if (gcev->gce_type == GRPC_C_EVENT_READ) {
 		    /*
-		     * Our read has resolved. If the user has set a 
+		     * Our read has resolved. If the user has set a
 		     * callback, invoke it
 		     */
 		    context = (grpc_c_context_t *)gcev->gce_data;
 		    if (context && context->gcc_read_resolve_cb) {
 			(context->gcc_read_resolve_cb)
-			    (context, context->gcc_read_resolve_arg, 
+			    (context, context->gcc_read_resolve_arg,
 			     ev.success);
 			context->gcc_read_resolve_cb = NULL;
 		    }
 		} else if (gcev->gce_type == GRPC_C_EVENT_WRITE) {
 		    /*
-		     * Our previous write has resolved. We can invoke user 
+		     * Our previous write has resolved. We can invoke user
 		     * provided callback so he can continue writing
 		     */
 		    context = (grpc_c_context_t *)gcev->gce_data;
 		    if (context && context->gcc_write_resolve_cb) {
 			(context->gcc_write_resolve_cb)
-			    (context, context->gcc_write_resolve_arg, 
+			    (context, context->gcc_write_resolve_arg,
 			     ev.success);
 			context->gcc_write_resolve_cb = NULL;
 		    }
-		} else if (gcev->gce_type == GRPC_C_EVENT_RPC_INIT 
+		} else if (gcev->gce_type == GRPC_C_EVENT_RPC_INIT
 			   || gcev->gce_type == GRPC_C_EVENT_WRITE_FINISH) {
 		    /*
 		     * Prepare and invoke rpc callback
 		     */
 		    context = (grpc_c_context_t *)gcev->gce_data;
-		    if (context == NULL 
+		    if (context == NULL
 			|| context->gcc_data.gccd_server == NULL) {
 			gpr_log(GPR_ERROR, "Invalid context for rpc");
 			break;
 		    } else if (grpc_c_get_thread_pool() != NULL && ev.success) {
 			/*
-			 * If we are event/task based, we get the initial 
-			 * complete event on server cq. Switch to call cq so 
+			 * If we are event/task based, we get the initial
+			 * complete event on server cq. Switch to call cq so
 			 * we can pull further rpc related events
 			 */
-			if (gcev->gce_type == GRPC_C_EVENT_WRITE_FINISH 
+			if (gcev->gce_type == GRPC_C_EVENT_WRITE_FINISH
 			    || ev.success) {
 			    cq = context->gcc_cq;
 			}
 		    }
 
 		    /*
-		     * If we are threaded and our rpc just got resolved, 
+		     * If we are threaded and our rpc just got resolved,
 		     * schedule call for next rpc before processing this
 		     */
-		    if (resolved == 0 && grpc_c_get_thread_pool() != NULL 
+		    if (resolved == 0 && grpc_c_get_thread_pool() != NULL
 			&& !context->gcc_data.gccd_server->gcs_shutdown) {
 			gc_schedule_callback(server_cq, server);
 			resolved = 1;
 		    }
 
 		    state = context->gcc_state;
-		    if (ev.success && state == GRPC_C_SERVER_CALLBACK_WAIT 
+		    if (ev.success && state == GRPC_C_SERVER_CALLBACK_WAIT
 			&& !context->gcc_data.gccd_server->gcs_shutdown) {
 			gpr_mu_lock(&context->gcc_data.gccd_server->gcs_lock);
 			context->gcc_data.gccd_server->gcs_running_cb++;
 			if (gc_trace) {
 			    gpr_log(GPR_DEBUG, "Incrementing running "
-				    "callbacks on server - %d", 
+				    "callbacks on server - %d",
 				    context->gcc_data.gccd_server->gcs_running_cb);
 			}
 			gpr_mu_unlock(&context->gcc_data.gccd_server->gcs_lock);
 
 			/*
-			 * Create a context lock to syncronize access to 
+			 * Create a context lock to syncronize access to
 			 * this cq
 			 */
 			context->gcc_lock = gpr_malloc(sizeof(gpr_mu));
@@ -583,7 +583,7 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
 		 * can proceed to destroy server and shutdown grpc
 		 */
 		gpr_log(GPR_DEBUG, "We have a shutdown event here %p", cq);
-		if (grpc_c_get_thread_pool() != NULL && server 
+		if (grpc_c_get_thread_pool() != NULL && server
 		    && server->gcs_cq == cq) {
 		    gpr_log(GPR_DEBUG, "We have a server shutdown event here %p", cq);
 		    gpr_mu_lock(&server->gcs_lock);
@@ -622,23 +622,23 @@ gc_handle_server_event_internal (grpc_completion_queue *cq,
 /*
  * Waits out for an RPC in thread
  */
-static void 
-gc_run_rpc (void *arg) 
+static void
+gc_run_rpc (void *arg)
 {
     struct gcs_thread_data_t *data = (struct gcs_thread_data_t *)arg;
     grpc_completion_queue *cq = data->cq;
     grpc_c_server_t *server = data->server;
     gpr_free(data);
 
-    gc_handle_server_event_internal(cq, server, 
+    gc_handle_server_event_internal(cq, server,
 				    gpr_inf_future(GPR_CLOCK_REALTIME));
 }
 
 /*
  * Waits for and takes action on incoming RPC requests
  */
-static void 
-gc_schedule_callback (grpc_completion_queue *cq, grpc_c_server_t *server) 
+static void
+gc_schedule_callback (grpc_completion_queue *cq, grpc_c_server_t *server)
 {
     struct gcs_thread_data_t *data = gpr_malloc(sizeof(struct gcs_thread_data_t));
     if (data == NULL) {
@@ -657,7 +657,7 @@ gc_schedule_callback (grpc_completion_queue *cq, grpc_c_server_t *server)
 static int
 gc_handle_server_event (grpc_completion_queue *cq)
 {
-    return gc_handle_server_event_internal(cq, NULL,  
+    return gc_handle_server_event_internal(cq, NULL,
 					   gpr_inf_past(GPR_CLOCK_REALTIME));
 }
 
@@ -665,7 +665,7 @@ gc_handle_server_event (grpc_completion_queue *cq)
  * Wait for callback execution on server
  */
 void
-grpc_c_server_wait (grpc_c_server_t *server) 
+grpc_c_server_wait (grpc_c_server_t *server)
 {
     gpr_mu mu;
     gpr_cv *callback_cv = NULL;
@@ -685,7 +685,7 @@ grpc_c_server_wait (grpc_c_server_t *server)
     gpr_mu_init(&mu);
     gpr_mu_lock(&mu);
     while (running_cb > 0 || !shutdown) {
-	gpr_cv_wait(callback_cv, &mu, 
+	gpr_cv_wait(callback_cv, &mu,
 		    gpr_inf_future(GPR_CLOCK_REALTIME));
     }
     gpr_mu_unlock(&mu);
@@ -710,7 +710,7 @@ grpc_c_server_start (grpc_c_server_t *server)
 
     grpc_server_start(server->gcs_server);
 
-    for (np = server->gcs_method_list_head.lh_first; np != NULL; 
+    for (np = server->gcs_method_list_head.lh_first; np != NULL;
 	 np = np->gcm_list.le_next) {
 	if (gc_register_grpc_method(server, np)) return 1;
     }
@@ -732,16 +732,16 @@ int
 grpc_c_methods_alloc (grpc_c_server_t *server, int method_count)
 {
     if (server->gcs_method_funcs == NULL) {
-	server->gcs_method_funcs = gpr_malloc(method_count 
+	server->gcs_method_funcs = gpr_malloc(method_count
 					      * sizeof(grpc_c_method_funcs_t));
-	server->gcs_contexts = gpr_malloc(method_count 
+	server->gcs_contexts = gpr_malloc(method_count
 					  * sizeof(grpc_c_context_t *));
     } else {
-	server->gcs_method_funcs = gpr_realloc(server->gcs_method_funcs, 
-					       (method_count + server->gcs_method_count) 
+	server->gcs_method_funcs = gpr_realloc(server->gcs_method_funcs,
+					       (method_count + server->gcs_method_count)
 					       * sizeof(grpc_c_method_funcs_t));
-	server->gcs_contexts = gpr_realloc(server->gcs_contexts, 
-					   (method_count + server->gcs_method_count) 
+	server->gcs_contexts = gpr_realloc(server->gcs_contexts,
+					   (method_count + server->gcs_method_count)
 					   * sizeof(grpc_c_context_t *));
     }
 
@@ -750,7 +750,7 @@ grpc_c_methods_alloc (grpc_c_server_t *server, int method_count)
 	gpr_free(server->gcs_contexts);
 	return 1;
     }
-    
+
     return 0;
 }
 
@@ -758,8 +758,8 @@ grpc_c_methods_alloc (grpc_c_server_t *server, int method_count)
  * Registers connect callback that will called when tcp connection is
  * established from client
  */
-void 
-grpc_c_register_connect_callback (grpc_c_server_t *server, 
+void
+grpc_c_register_connect_callback (grpc_c_server_t *server,
 				  grpc_c_client_connect_callback_t *cb)
 {
     if (server && cb) {
@@ -771,8 +771,8 @@ grpc_c_register_connect_callback (grpc_c_server_t *server,
  * Regsiters disconnect callback that gets called when client closes the
  * connection
  */
-void 
-grpc_c_register_disconnect_callback (grpc_c_server_t *server, 
+void
+grpc_c_register_disconnect_callback (grpc_c_server_t *server,
 				     grpc_c_client_disconnect_callback_t *cb)
 {
     if (server && cb) {
@@ -783,11 +783,11 @@ grpc_c_register_disconnect_callback (grpc_c_server_t *server,
 /*
  * Creates a grpc server for given host
  */
-static grpc_c_server_t * gc_server_create_internal(const char *host, grpc_server_credentials *creds, 
+static grpc_c_server_t * gc_server_create_internal(const char *host, grpc_server_credentials *creds,
 			                                       grpc_channel_args *args)
 {
     grpc_completion_queue_attributes attr;
-    
+
     /*
      * Server structure stuff
      */
@@ -814,19 +814,19 @@ static grpc_c_server_t * gc_server_create_internal(const char *host, grpc_server
      * If we have credentials, we create a secure server
      */
     if (creds) {
-	if (grpc_server_add_secure_http2_port(server->gcs_server, host, 
+	if (grpc_server_add_secure_http2_port(server->gcs_server, host,
 					      creds) == 0) {
 	    grpc_c_server_destroy(server);
 	    return NULL;
 	}
     } else {
-	if (grpc_server_add_insecure_http2_port(server->gcs_server, 
+	if (grpc_server_add_insecure_http2_port(server->gcs_server,
 						host) == 0) {
 	    grpc_c_server_destroy(server);
 	    return NULL;
 	}
     }
-    grpc_server_register_completion_queue(server->gcs_server, server->gcs_cq, 
+    grpc_server_register_completion_queue(server->gcs_server, server->gcs_cq,
 					  NULL);
     LIST_INIT(&server->gcs_method_list_head);
 
@@ -837,7 +837,7 @@ static grpc_c_server_t * gc_server_create_internal(const char *host, grpc_server
  * Creates a grpc-c server with provided name
  */
 grpc_c_server_t *
-grpc_c_server_create (const char *name, grpc_server_credentials *creds, 
+grpc_c_server_create (const char *name, grpc_server_credentials *creds,
 		      grpc_channel_args *args)
 {
     char buf[BUFSIZ];
@@ -851,7 +851,7 @@ grpc_c_server_create (const char *name, grpc_server_credentials *creds,
     if (buf[0] == '\0') {
 	return NULL;
     }
-    
+
     return gc_server_create_internal(buf, creds, args);
 }
 
@@ -859,12 +859,16 @@ grpc_c_server_create (const char *name, grpc_server_credentials *creds,
  * Creates a grpc-c server with provided address
  */
 grpc_c_server_t *
-grpc_c_server_create_by_host (const char *addr, grpc_server_credentials *creds, 
+grpc_c_server_create_by_host (const char *addr, grpc_server_credentials *creds,
 			      grpc_channel_args *args)
 {
     if (addr == NULL) {
 	return NULL;
     }
+
+
+
+
 
     return gc_server_create_internal(addr, creds, args);
 }
@@ -873,8 +877,8 @@ grpc_c_server_create_by_host (const char *addr, grpc_server_credentials *creds,
  * Adds insecure ip/port to grpc server
  */
 int
-grpc_c_server_add_insecure_http2_port (grpc_c_server_t *server, 
-				       const char* addr) 
+grpc_c_server_add_insecure_http2_port (grpc_c_server_t *server,
+				       const char* addr)
 {
     if (server == NULL) return 0;
 
@@ -884,9 +888,9 @@ grpc_c_server_add_insecure_http2_port (grpc_c_server_t *server,
 /*
  * Adds secure ip/port to grpc server
  */
-int 
-grpc_c_server_add_secure_http2_port (grpc_c_server_t *server, 
-				     const char *addr, 
+int
+grpc_c_server_add_secure_http2_port (grpc_c_server_t *server,
+				     const char *addr,
 				     grpc_server_credentials *creds)
 {
     if (server == NULL) return 0;
@@ -899,7 +903,7 @@ grpc_c_server_add_secure_http2_port (grpc_c_server_t *server,
  * channel has cancelled. This must be called on a valid context. Returns 1 if
  * cancelled and 0 otherwise
  */
-int 
+int
 grpc_c_context_is_call_cancelled (grpc_c_context_t *context)
 {
     grpc_event ev;
@@ -913,8 +917,8 @@ grpc_c_context_is_call_cancelled (grpc_c_context_t *context)
     if (context->gcc_is_client) return 0;
 
     gpr_mu_lock(context->gcc_lock);
-    ev = grpc_completion_queue_pluck(context->gcc_cq, 
-				     &context->gcc_recv_close_event, deadline, 
+    ev = grpc_completion_queue_pluck(context->gcc_cq,
+				     &context->gcc_recv_close_event, deadline,
 				     NULL);
     gpr_mu_unlock(context->gcc_lock);
 
@@ -931,7 +935,7 @@ grpc_c_context_is_call_cancelled (grpc_c_context_t *context)
 /*
  * Shutsdown and releases server
  */
-void 
+void
 grpc_c_server_destroy (grpc_c_server_t *server)
 {
     int i;
@@ -946,7 +950,7 @@ grpc_c_server_destroy (grpc_c_server_t *server)
 	    gpr_mu_lock(&server->gcs_lock);
 	    server->gcs_shutdown = 1;
 	    while (server->gcs_running_cb > 0) {
-		gpr_cv_wait(&server->gcs_shutdown_cv, &server->gcs_lock, 
+		gpr_cv_wait(&server->gcs_shutdown_cv, &server->gcs_lock,
 			    gpr_inf_future(GPR_CLOCK_REALTIME));
 	    }
 	    gpr_mu_unlock(&server->gcs_lock);
@@ -956,16 +960,16 @@ grpc_c_server_destroy (grpc_c_server_t *server)
 
 	if (server->gcs_server) {
 	    server->gcs_shutdown_event.gce_refcount++;
-	    grpc_server_shutdown_and_notify(server->gcs_server, 
-					    server->gcs_cq, 
+	    grpc_server_shutdown_and_notify(server->gcs_server,
+					    server->gcs_cq,
 					    &server->gcs_shutdown_event);
 	}
 
 	if (server->gcs_cq) {
 	    grpc_completion_queue_shutdown(server->gcs_cq);
 	    if (!grpc_c_get_thread_pool()) {
-		while (grpc_completion_queue_next(server->gcs_cq, 
-						  gpr_inf_past(GPR_CLOCK_REALTIME), 
+		while (grpc_completion_queue_next(server->gcs_cq,
+						  gpr_inf_past(GPR_CLOCK_REALTIME),
 						  NULL).type != GRPC_QUEUE_SHUTDOWN)
 		    ;
 
@@ -977,7 +981,7 @@ grpc_c_server_destroy (grpc_c_server_t *server)
 		gpr_log(GPR_DEBUG, "Waiting for server destroy cv");
 		gpr_mu_lock(&server->gcs_lock);
 		while (server->gcs_cq_shutdown == 0) {
-		    gpr_cv_wait(&server->gcs_cq_destroy_cv, &server->gcs_lock, 
+		    gpr_cv_wait(&server->gcs_cq_destroy_cv, &server->gcs_lock,
 				gpr_inf_future(GPR_CLOCK_REALTIME));
 		}
 		grpc_server_destroy(server->gcs_server);
@@ -1021,7 +1025,7 @@ grpc_c_server_destroy (grpc_c_server_t *server)
 	if (server->gcs_callback_shutdown) {
 	    *server->gcs_callback_shutdown = server->gcs_shutdown;
 	}
-	
+
 	gpr_cv_broadcast(server->gcs_callback_cv);
 	gpr_cv_destroy(&server->gcs_shutdown_cv);
 	gpr_cv_destroy(&server->gcs_cq_destroy_cv);
