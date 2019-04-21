@@ -16,6 +16,15 @@
 #include "hooks.h"
 #include "stream_ops.h"
 
+
+#ifdef __cplusplus
+#if __cplusplus
+extern "C"{
+#endif
+#endif /* __cplusplus */
+
+
+
 /*
  * Forward declaration
  */
@@ -1399,20 +1408,36 @@ grpc_c_client_try_connect (grpc_c_client_t *client, long timeout)
     return 0;
 }
 
-/*
- * Cancels connection attempt
- */
-void
-grpc_c_client_cancel_connect (grpc_c_client_t *client)
-{
-    if (client && client->gcc_retry_tag) {
-	grpc_c_grpc_client_cancel_try_connect((void *)client->gcc_retry_tag);
-    }
-}
 
-void
-grpc_c_register_client_socket_create_callback (void (*fp)(int fd,
-							  const char *uri))
-{
-    grpc_c_grpc_set_client_socket_create_callback(fp);
+grpc_c_client_t *
+grpc_c_client_init( const char *server_name, const char *client_id,
+        		    grpc_channel_credentials *channel_creds,
+        		    grpc_channel_args *channel_args);
+
+/*
+ * Initialize a client with client_id and server address
+ */
+grpc_c_client_t *
+grpc_c_client_init_by_host( const char *address, const char *client_id,
+            			    grpc_channel_credentials *channel_creds,
+            			    grpc_channel_args *channel_args);
+
+/*
+ * Waits for all callbacks to get done in a threaded client
+ */
+void grpc_c_client_wait (grpc_c_client_t *client);
+
+/*
+ * Destroy and free client object
+ */
+void grpc_c_client_free (grpc_c_client_t *client);
+
+
+
+
+#ifdef __cplusplus
+#if __cplusplus
 }
+#endif
+#endif /* __cplusplus */
+

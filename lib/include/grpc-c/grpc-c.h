@@ -164,10 +164,6 @@ typedef void (* grpc_c_service_callback_t)(grpc_c_context_t *context);
 
 
 /*
- * Client structure related definitions
- */
-
-/*
  * Structure definition for grpc_c client
  */
 struct grpc_c_client_s {
@@ -458,7 +454,8 @@ int grpc_c_client_request_async( grpc_c_client_t *client,
  */
 int grpc_c_client_request_stream( grpc_c_client_t *client,
                   				  grpc_c_metadata_array_t *mdarray, uint32_t flags,
-                  				  const char *method_url, grpc_c_context_t **context,
+                  				  const char *method_url,
+                  				  grpc_c_context_t **context,
                   				  int client_streaming, int server_streaming,
                   				  grpc_c_method_funcs_t * funcs,
                   				  long timeout);
