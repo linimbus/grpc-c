@@ -1,17 +1,17 @@
-/*
- * Copyright (c) 2017, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #include <grpc-c/grpc-c.h>
-#include "common/strextra.h"
 #include "metadata_array.h"
+
+#ifdef __cplusplus
+#if __cplusplus
+extern "C"{
+#endif
+#endif /* __cplusplus */
+
 
 /*
  * Initializes metadata array
  */
-void 
-grpc_c_metadata_array_init (grpc_c_metadata_array_t *array) 
+void grpc_c_metadata_array_init (grpc_c_metadata_array_t *array) 
 {
     grpc_metadata_array_init(array);
 }
@@ -19,8 +19,7 @@ grpc_c_metadata_array_init (grpc_c_metadata_array_t *array)
 /*
  * Destroys metadata array after destroying metadata
  */
-void 
-grpc_c_metadata_array_destroy (grpc_c_metadata_array_t *array)
+void grpc_c_metadata_array_destroy (grpc_c_metadata_array_t *array)
 {
     /*
      * Free metadata keyvalue pairs
@@ -38,8 +37,7 @@ grpc_c_metadata_array_destroy (grpc_c_metadata_array_t *array)
  * Searches given metadata array for key and returns the value. Will return
  * NULL if given key is not found
  */
-const char *
-grpc_get_metadata_by_array (grpc_c_metadata_array_t *mdarray, const char *key)
+const char *grpc_get_metadata_by_array (grpc_c_metadata_array_t *mdarray, const char *key)
 {
     size_t i;
     char *value = NULL;
@@ -62,8 +60,7 @@ grpc_get_metadata_by_array (grpc_c_metadata_array_t *mdarray, const char *key)
  * Inserts given keyvalue pair into metadata array. Returns 0 on success and 1
  * on failure
  */
-int 
-grpc_c_add_metadata_by_array (grpc_c_metadata_array_t *mdarray, 
+int grpc_c_add_metadata_by_array (grpc_c_metadata_array_t *mdarray, 
 			      char ***store, const char *key, 
 			      const char *value)
 {
@@ -101,3 +98,12 @@ grpc_c_add_metadata_by_array (grpc_c_metadata_array_t *mdarray,
 
     return 0;
 }
+
+
+#ifdef __cplusplus
+#if __cplusplus
+}
+#endif
+#endif /* __cplusplus */
+
+				  

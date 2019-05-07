@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #include <google/protobuf/compiler/plugin.h>
 #include "grpc_c_generator.h"
 

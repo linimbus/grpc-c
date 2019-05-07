@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
 // http://code.google.com/p/protobuf/

@@ -41,7 +41,6 @@ extern "C"{
 #define GRPC_C_TRACE_QUEUE_PLUCK           (1 << 15)
 #define GRPC_C_TRACE_QUEUE_TIMEOUT         (1 << 16)
 #define GRPC_C_TRACE_OP_FAILURE            (1 << 17)
-#define GRPC_C_TRACE_CORE                  (1 << 18)
 #define GRPC_C_TRACE_ALL                   (~0)
 
 void grpc_c_trace_enable(int flags, int severity);
@@ -86,6 +85,7 @@ typedef enum grpc_c_event_type_s {
     GRPC_C_EVENT_FINISH,
     GRPC_C_EVENT_RECV_CLOSE,
     GRPC_C_EVENT_SERVER_SHUTDOWN,
+    GRPC_C_EVENT_SERVER_REGISTER,
 } grpc_c_event_type_t;
 
 /*
@@ -119,6 +119,7 @@ typedef struct grpc_c_client_s grpc_c_client_t;
 typedef struct grpc_c_context_s grpc_c_context_t;
 typedef struct grpc_c_method_funcs_s grpc_c_method_funcs_t;
 typedef grpc_metadata_array grpc_c_metadata_array_t;
+typedef struct grpc_c_method_s grpc_c_method_t;
 
 
 typedef size_t (*grpc_c_method_data_pack_t)(void *input, grpc_byte_buffer **buffer);
@@ -139,17 +140,6 @@ struct grpc_c_method_funcs_s {
     grpc_c_method_data_free_t   *output_free;	    /* Output free function */
 };
 
-/*
- * Definition for RPC method structure
- */
-struct grpc_c_method_t {
-    grpc_c_list_t list;
-    void * method_tag;			/* Tag returned by grpc_server_register_method() */
-    char * method_url;			/* URL for this RPC */
-    int client_streaming;		/* Flag to indicate if client is streaming */
-    int server_streaming;		/* Flag to indicate if server is streaming */
-    grpc_c_method_funcs_s * funcs;
-};
 
 /*
  * Signature for client callback
@@ -160,6 +150,20 @@ typedef void (* grpc_c_client_callback_t)(grpc_c_context_t *context, void * tag,
  * Service implementation
  */
 typedef void (* grpc_c_service_callback_t)(grpc_c_context_t *context);
+
+
+/*
+ * Definition for RPC method structure
+ */
+struct grpc_c_method_s {
+    grpc_c_list_t list;
+    void * method_tag;			/* Tag returned by grpc_server_register_method() */
+    char * method_url;			/* URL for this RPC */
+    int client_streaming;		/* Flag to indicate if client is streaming */
+    int server_streaming;		/* Flag to indicate if server is streaming */
+	grpc_c_service_callback_t handler;
+    grpc_c_method_funcs_t * funcs;
+};
 
 
 
@@ -189,7 +193,7 @@ struct grpc_c_client_s {
  * Structure definition for grpc-c context
  */
 struct grpc_c_context_s {
-    struct grpc_c_method_t *gcc_method;		/* Corresponding method */
+    grpc_c_method_t *gcc_method;		/* Corresponding method */
     grpc_byte_buffer *gcc_payload;		/* Payload holder */
     grpc_op *gcc_ops;				/* Array of grpc operations */
     grpc_byte_buffer **gcc_ops_payload;		/* Payload per operation */
@@ -263,9 +267,11 @@ typedef void (* grpc_c_memory_free_func_t)(grpc_c_context_t *context, void *data
 
 void grpc_c_set_memory_function(grpc_c_memory_alloc_func_t , grpc_c_memory_free_func_t );
 
-ProtobufCAllocator *
-grpc_c_get_protobuf_c_allocator (grpc_c_context_t *context,
-				                 ProtobufCAllocator *allocator);
+void * grpc_malloc(size_t size);
+
+void grpc_free(void *data);
+
+ProtobufCAllocator * grpc_c_get_protobuf_c_allocator (grpc_c_context_t *context, ProtobufCAllocator *allocator);
 
 /*
  * Server structure definition
@@ -377,7 +383,7 @@ void grpc_c_server_destroy(grpc_c_server_t *server);
  */
 int grpc_c_register_method( grpc_c_server_t *server, const char *method_url,
             			    int client_streaming, int server_streaming,
-            			    grpc_c_service_callback_t *handler,
+            			    grpc_c_service_callback_t handler,
             			    grpc_c_method_funcs_t * funcs);
 
 /*

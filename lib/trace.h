@@ -1,15 +1,13 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved
- */
-
 #ifndef GRPC_C_INTERNAL_TRACE_H
 #define GRPC_C_INTERNAL_TRACE_H
 
-/*
- * Flag that enables grpc-c traces
- */
-extern int gc_trace;
+
+void grpc_c_log(int level, const char *file, int line, const char * format, ...);
+
+#define GRPC_C_INF(format,args...) grpc_c_log(0,__FILE__,__LINE__, format, ##args)
+
+#define GRPC_C_ERR(format,args...) grpc_c_log(1,__FILE__,__LINE__, format, ##args)
+
 
 /*
  * Initialize tracing

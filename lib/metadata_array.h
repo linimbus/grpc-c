@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2017, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #ifndef GPRC_C_INTERNAL_METADATA_ARRAY_H
 #define GRPC_C_INTERNAL_METADATA_ARRAY_H
 

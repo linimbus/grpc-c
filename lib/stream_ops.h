@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2017, Juniper Networks, Inc.
- * All rights reserved.
- */
 
 #ifndef GPRC_C_INTERNAL_STREAM_OPS_H
 #define GPRC_C_INTERNAL_STREAM_OPS_H

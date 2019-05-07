@@ -1,10 +1,7 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <grpc-c/grpc-c.h>
-
 
 #ifdef __cplusplus
 #if __cplusplus
@@ -12,33 +9,43 @@ extern "C"{
 #endif
 #endif /* __cplusplus */
 
+/*
+ * Signatures for protobuf allocate and free function callbacks
+ */
+typedef void *(*protobuf_c_alloc_func_t)(void *allocator_data, size_t size);
+typedef void (*protobuf_c_free_func_t)(void *allocator_data, void *data);
 
 
-
-
-
-void * grpc_c_alloc()
+void * grpc_malloc(size_t size)
 {
-
+	return malloc(size);
 }
 
-void grpc_c_free()
+void grpc_free(void *data)
 {
+	free(data);
+}
 
+void * grpc_c_malloc(grpc_c_context_t *context,size_t size)
+{
+	return grpc_malloc(size);
+}
+
+void grpc_c_free(grpc_c_context_t *context,void *data)
+{
+	grpc_free(data);
 }
 
 
 /*
  * User provided allocate and free functions
  */
-static grpc_c_memory_alloc_func_t grpc_c_alloc_func = NULL;
-static grpc_c_memory_free_func_t  groc_c_free_func = NULL;
+grpc_c_memory_alloc_func_t grpc_c_alloc_func = grpc_c_malloc;
+grpc_c_memory_free_func_t  groc_c_free_func  = grpc_c_free;
 
-/*
- * Signatures for protobuf allocate and free function callbacks
- */
-typedef void *(protobuf_c_alloc_func_t)(void *allocator_data, size_t size);
-typedef void (protobuf_c_free_func_t)(void *allocator_data, void *data);
+
+
+
 
 /*
  * Sets allocate function callback
@@ -58,8 +65,8 @@ ProtobufCAllocator * grpc_c_get_protobuf_c_allocator(grpc_c_context_t *context, 
 {
     if (grpc_c_alloc_func && groc_c_free_func && allocator) {
 
-		allocator->alloc = (protobuf_c_alloc_func_t *)grpc_c_alloc_func;
-		allocator->free  = (protobuf_c_free_func_t *)groc_c_free_func;
+		allocator->alloc = (protobuf_c_alloc_func_t )grpc_c_alloc_func;
+		allocator->free  = (protobuf_c_free_func_t )groc_c_free_func;
 
 		if (context) {
 			allocator->allocator_data = (void *)context;
