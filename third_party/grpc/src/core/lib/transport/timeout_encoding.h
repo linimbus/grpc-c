@@ -27,7 +27,7 @@
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
 
-#define GRPC_HTTP2_TIMEOUT_ENCODE_MIN_GRPC_C_BUFSIZE (GPR_LTOA_MIN_GRPC_C_BUFSIZE + 1)
+#define GRPC_HTTP2_TIMEOUT_ENCODE_MIN_BUFSIZE (GPR_LTOA_MIN_BUFSIZE + 1)
 
 /* Encode/decode timeouts to the GRPC over HTTP/2 format;
    encoding may round up arbitrarily */
