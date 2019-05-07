@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #include <grpc-c/grpc-c.h>
 #include "context.h"
 #include "hooks.h"

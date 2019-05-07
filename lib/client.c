@@ -1,19 +1,10 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #include <stdio.h>
 
 #include <grpc-c/grpc-c.h>
 #include <grpc/support/alloc.h>
 
-#include "common/strextra.h"
-#include "common/env_paths.h"
-
 #include "context.h"
 #include "thread_pool.h"
-#include "hooks.h"
 #include "stream_ops.h"
 
 
@@ -1367,46 +1358,6 @@ grpc_c_client_wait (grpc_c_client_t *client)
     gpr_cv_signal(&client->gcc_shutdown_cv);
 }
 
-/*
- * Sets client task pointer
- */
-void
-grpc_c_set_client_task (void *tp)
-{
-    grpc_c_grpc_set_client_task(tp);
-}
-
-static void
-gc_client_retry_timeout_cb (void *data)
-{
-    grpc_c_client_t *client = (grpc_c_client_t *)data;
-    client->gcc_conn_timeout = 1;
-    client->gcc_connected = 0;
-    client->gcc_retry_tag = NULL;
-
-    if (client->gcc_server_disconnect_cb) {
-	client->gcc_server_disconnect_cb(client);
-    }
-}
-
-/*
- * Tries to connect to server with given timeout in milliseconds. -1 will
- * indefinitely try till a connection can be established
- */
-int
-grpc_c_client_try_connect (grpc_c_client_t *client, long timeout)
-{
-    client->gcc_channel_state
-	= grpc_channel_check_connectivity_state(client->gcc_channel, 1);
-
-    if (grpc_c_grpc_client_try_connect(timeout, gc_client_retry_timeout_cb,
-				       client, (void **)&client->gcc_retry_tag)) {
-	gpr_log(GPR_ERROR, "Failed to retry");
-	return 1;
-    }
-
-    return 0;
-}
 
 
 grpc_c_client_t *

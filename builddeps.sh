@@ -30,6 +30,7 @@ cd ../../
 
 echo "Building protobuf-c"
 cd third_party/protobuf-c
+./autogen.sh
 ./configure --prefix=${PERFIX_PATH}
 make -j 4
 make install
