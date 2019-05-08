@@ -9,15 +9,8 @@
 #include <sys/time.h>
 #include "foo.grpc-c.h"
 
-extern int grpc_api_trace;
-
 
 static grpc_c_server_t *test_server;
-
-static void sigint_handler (int x) { 
-    grpc_c_server_destroy(test_server);
-    exit(0);
-}
 
 /*
  * This function gets invoked whenever say_hello RPC gets called
@@ -25,14 +18,16 @@ static void sigint_handler (int x) {
 void
 foo__greeter__say_hello_cb (grpc_c_context_t *context)
 {
+	int ret;
     foo__HelloRequest *h;
 
+	printf("foo__greeter__say_hello_cb entry!\n");
+	
     /*
      * Read incoming message into h
      */
-    if (context->gcc_stream->read(context, (void **)&h, 0, -1)) {
-	printf("Failed to read data from client\n");
-	exit(1);
+    if (grpc_c_read(context, (void **)&h, 0, -1)) {
+		printf("Failed to read data from client\n");
     }
 
     /*
@@ -50,56 +45,43 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
     /*
      * Write reply back to the client
      */
-    if (!context->gcc_stream->write(context, &r, 0, -1)) {
-        //printf("Wrote hello world to %s\n", grpc_c_get_client_id(context));
-    } else {
-        printf("Failed to write\n");
-        exit(1);
+
+    ret = grpc_c_write(context, &r, 0, -1);
+    if ( ret ) {
+        printf("Failed to write %d\n", ret);
     }
 
     grpc_c_status_t status;
-    status.gcs_code = 0;
+    status.code = 0;
+	status.message[0] = '\0';
 
     /*
      * Finish response for RPC
      */
-    if (context->gcc_stream->finish(context, &status, 0)) {
+    if (grpc_c_server_finish(context, &status, 0)) {
         printf("Failed to write status\n");
-        exit(1);
     }
 }
 
 /*
  * Takes socket path as argument
  */
-int 
-main (int argc, char **argv) 
+int foo_server() 
 {
     int i = 0;
-
-    if (argc < 2) {
-	fprintf(stderr, "Missing socket path argument\n");
-	exit(1);
-    }
-
-    signal(SIGINT, sigint_handler);
 
     /*
      * Initialize grpc-c library to be used with vanilla gRPC
      */
-    grpc_c_init(GRPC_THREADS, NULL);
-
-    grpc_api_trace = 1;
-    gpr_set_log_verbosity(1);
-
+    grpc_c_init();
     
     /*
      * Create server object
      */
-    test_server = grpc_c_server_create_by_host("127.0.0.1:3000", NULL, NULL);
+    test_server = grpc_c_server_create("127.0.0.1:3000", NULL, NULL);
     if (test_server == NULL) {
-	printf("Failed to create server\n");
-	exit(1);
+		printf("Failed to create server\n");
+		exit(1);
     }
 
     /*

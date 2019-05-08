@@ -43,6 +43,8 @@ int grpc_c_client_request_sync( grpc_c_client_t *client,
 		return GRPC_C_ERR_NOMEM;
 	}
 
+	context->state = GRPC_C_STATE_RUN;
+
 	context->call = grpc_channel_create_call(client->channel, NULL, 0, 
     										 client->queue, 
     										 grpc_slice_from_static_string(method_url), 
@@ -58,12 +60,17 @@ int grpc_c_client_request_sync( grpc_c_client_t *client,
 		goto failed;
 	}
 
-	ret = grpc_c_recv_initial_metadata(context->call, context->recv_init_metadata, timeout);
+	ret = grpc_c_write(context, input, 0, timeout);
 	if (ret != GRPC_C_OK) {
 		goto failed;
 	}
 
-	ret = grpc_c_write(context, input, 0, timeout);
+	ret = grpc_c_write_done(context, 0, timeout);
+	if (ret != GRPC_C_OK) {
+		goto failed;
+	}
+
+	ret = grpc_c_recv_initial_metadata(context->call, context->recv_init_metadata, timeout);
 	if (ret != GRPC_C_OK) {
 		goto failed;
 	}
@@ -122,6 +129,8 @@ int grpc_c_client_request_stream( grpc_c_client_t *client,
 	if (context == NULL) {
 		return GRPC_C_ERR_NOMEM;
 	}
+
+	context->state = GRPC_C_STATE_RUN;
 
 	context->call = grpc_channel_create_call(client->channel, NULL, 0, 
 											 client->queue, 
@@ -192,7 +201,7 @@ void grpc_c_client_master_task(void *arg) {
 		event = grpc_completion_queue_next(client->queue, gpr_inf_future(GPR_CLOCK_MONOTONIC), NULL);
 		if (event.type == GRPC_OP_COMPLETE ) {
 			grpc_c_event_t * grpc_event = (grpc_c_event_t *)event.tag;
-			grpc_event->callback(grpc_event->data, event.success);
+			grpc_event->callback(grpc_event, event.success);
 		}else if ( event.type == GRPC_QUEUE_SHUTDOWN ) {
 
 			gpr_mu_lock(&client->lock);

@@ -6,7 +6,7 @@ set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}")
 
 include_directories("${PROJECT_SOURCE_DIR}")
 
-add_subdirectory (bidi_streaming)
-add_subdirectory (client_streaming)
-add_subdirectory (server_streaming)
+#add_subdirectory (bidi_streaming)
+#add_subdirectory (client_streaming)
+#add_subdirectory (server_streaming)
 add_subdirectory (foo)

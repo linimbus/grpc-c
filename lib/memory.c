@@ -21,6 +21,11 @@ void * grpc_malloc(size_t size)
 	return malloc(size);
 }
 
+void * grpc_realloc(void * ptr,size_t size)
+{
+	return realloc(ptr, size);
+}
+
 void grpc_free(void *data)
 {
 	free(data);

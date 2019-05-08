@@ -266,8 +266,9 @@ struct grpc_c_context_s {
 	grpc_c_initial_metadata_t * send_init_metadata;
 	grpc_c_initial_metadata_t * recv_init_metadata;
 
+	int is_client;
+	
 	union grpc_c_ctx_data {
-		int is_client;
 		struct grpc_c_context_client_s {
 			grpc_c_client_t           *client_t;
 			void                      *tag;
@@ -300,6 +301,8 @@ void * grpc_malloc(size_t size);
 
 void grpc_free(void *data);
 
+void * grpc_realloc(void * ptr,size_t size);
+
 ProtobufCAllocator * grpc_c_get_protobuf_c_allocator (grpc_c_context_t *context, ProtobufCAllocator *allocator);
 
 /*
@@ -328,17 +331,19 @@ struct grpc_c_server_s {
  * Initialize libgrpc-c to be used with given underlying libgrpc. Second
  * parameter is used to pass data to underlying library if it needs any
  */
-void grpc_c_init(void);
+int grpc_c_init(void);
 
 /*
  * Shutsdown initialized grpc-c library. To be called towards end of program
  */
-void grpc_c_shutdown(void);
+int grpc_c_shutdown(void);
 
 
 int grpc_c_read(grpc_c_context_t *context, void **content, uint32_t flags, long timeout);
 
 int grpc_c_write(grpc_c_context_t *context, void *output, uint32_t flags, long timeout);
+
+int grpc_c_write_done(grpc_c_context_t *context, uint32_t flags, long timeout);
 
 int grpc_c_client_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t flags);
 
@@ -346,22 +351,11 @@ int grpc_c_server_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 
 
 /*
- * Initialize a client with client_id to server_name. We build unix domain
- * socket path to server from server_name. When channel_creds is given, we
- * create a secure channel. Otherwise it'll be an insecure one.
- */
-grpc_c_client_t *
-grpc_c_client_init( const char *server_name, const char *client_id,
-        		    grpc_channel_credentials *channel_creds,
-        		    grpc_channel_args *channel_args);
-
-/*
  * Initialize a client with client_id and server address
  */
-grpc_c_client_t *
-grpc_c_client_init_by_host( const char *address, const char *client_id,
-            			    grpc_channel_credentials *channel_creds,
-            			    grpc_channel_args *channel_args);
+grpc_c_client_t * grpc_c_client_init( const char *address, const char *client_id,
+				        		    grpc_channel_credentials *channel_creds,
+				        		    grpc_channel_args *channel_args);
 
 /*
  * Waits for all callbacks to get done in a threaded client
@@ -375,15 +369,10 @@ void grpc_c_client_free (grpc_c_client_t *client);
 
 
 /*
- * Create a server object with given daemon name. We build unix domain socket
- * path from this name
- */
-grpc_c_server_t * grpc_c_server_create( const char *name, grpc_server_credentials *creds, grpc_channel_args *args);
-
-/*
  * Create a server object with given tcp/ip address
  */
-grpc_c_server_t * grpc_c_server_create_by_host(const char *addr, grpc_server_credentials *creds, grpc_channel_args *args);
+grpc_c_server_t * grpc_c_server_create( const char *addr, grpc_server_credentials *creds, grpc_channel_args *args);
+
 
 /*
  * Start server

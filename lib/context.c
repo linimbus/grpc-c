@@ -28,7 +28,7 @@ grpc_c_context_t * grpc_c_context_init(grpc_c_method_t *method, int is_client)
     context->method_funcs  = method->funcs;
     context->deadline      = gpr_inf_future(GPR_CLOCK_MONOTONIC);
 
-	context->type.is_client = is_client;
+	context->is_client = is_client;
 	
 	if (is_client) {
 		context->writer = grpc_c_stream_writer_init(method->client_streaming);
@@ -59,6 +59,11 @@ grpc_c_context_t * grpc_c_context_init(grpc_c_method_t *method, int is_client)
  */
 void grpc_c_context_free (grpc_c_context_t *context)
 {
+	if (context->call) {
+		grpc_call_cancel(context->call, NULL);
+		grpc_call_unref(context->call);
+	}
+
 	grpc_c_initial_metadata_destory(context->send_init_metadata);
 	grpc_c_initial_metadata_destory(context->recv_init_metadata);
 
@@ -90,7 +95,7 @@ int grpc_c_read(grpc_c_context_t *context, void **content, uint32_t flags, long 
 		return ret;
 	}
 
-	if ( context->type.is_client ) {
+	if ( context->is_client ) {
 		*content = context->method_funcs->output_unpacker(context, output);
 	}else {
 		*content = context->method_funcs->input_unpacker(context, output);
@@ -110,7 +115,9 @@ int grpc_c_write(grpc_c_context_t *context, void *output, uint32_t flags, long t
 		return GRPC_C_ERR_FAIL;
 	}
 
-	if ( context->type.is_client ) {
+	grpc_c_send_initial_metadata(context->call, context->send_init_metadata, timeout);
+
+	if ( context->is_client ) {
 		context->method_funcs->input_packer(output, &input);
 	}else {
 		context->method_funcs->output_packer(output, &input);
@@ -123,6 +130,24 @@ int grpc_c_write(grpc_c_context_t *context, void *output, uint32_t flags, long t
 	return ret;
 }
 
+int grpc_c_write_done(grpc_c_context_t *context, uint32_t flags, long timeout) {
+
+	int ret;
+
+	gpr_mu_lock(&context->lock);
+	if ( context->state != GRPC_C_STATE_RUN ) {
+		gpr_mu_unlock(&context->lock);
+		return GRPC_C_ERR_FAIL;
+	}
+
+	ret = grpc_c_stream_write_done(context->call, context->writer, flags, timeout);
+
+	gpr_mu_unlock(&context->lock);
+
+	return ret;
+}
+
+
 int grpc_c_client_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t flags) {
 	int ret;
 	
@@ -132,7 +157,16 @@ int grpc_c_client_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 		return GRPC_C_ERR_FAIL;
 	}
 
+	ret = grpc_c_stream_write_done(context->call, context->writer, flags, -1);
+	if ( ret != GRPC_C_OK ) {
+		gpr_mu_unlock(&context->lock);
+		return ret;
+	}
+	
 	ret = grpc_c_status_recv(context->call, context->status, status, flags);
+
+	context->state = GRPC_C_STATE_DONE;
+
 	gpr_mu_unlock(&context->lock);
 
 	return ret;
@@ -145,6 +179,12 @@ int grpc_c_server_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 	if ( context->state != GRPC_C_STATE_RUN ) {
 		gpr_mu_unlock(&context->lock);
 		return GRPC_C_ERR_FAIL;
+	}
+
+	ret = grpc_c_send_initial_metadata(context->call, context->send_init_metadata, -1);
+	if ( ret != GRPC_C_OK ) {
+		gpr_mu_unlock(&context->lock);
+		return ret;
 	}
 
 	ret = grpc_c_status_send(context->call, context->status, status, flags);

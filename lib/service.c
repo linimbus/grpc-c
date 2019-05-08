@@ -72,6 +72,8 @@ void grpc_c_server_call_start(void *arg) {
 	}
 	gpr_mu_unlock(&context->lock);
 
+	GRPC_C_INF("server call method %s exit!", context->method_url );
+
 	grpc_c_context_free(context);
 }
 
@@ -169,6 +171,8 @@ int grpc_c_register_method( grpc_c_server_t *server, const char *method_url,
 		return 1;
     }
 
+	memset(method, 0, sizeof(grpc_c_method_t));
+
 	method->method_url = gpr_strdup(method_url);
 	method->method_tag = method_tag;
 	method->funcs            = funcs;
@@ -201,26 +205,15 @@ int grpc_c_server_add_http2_port (grpc_c_server_t *server, const char* addr, grp
     return ret;
 }
 
-
-/*
- * Create a server object with given daemon name. We build unix domain socket
- * path from this name
- */
-grpc_c_server_t * grpc_c_server_create( const char *name, grpc_server_credentials *creds, grpc_channel_args *args)
-{
-
-    return NULL;
-}
-
 /*
  * Create a server object with given tcp/ip address
  */
-grpc_c_server_t * grpc_c_server_create_by_host(const char *addr, grpc_server_credentials *creds, grpc_channel_args *args)
+grpc_c_server_t * grpc_c_server_create(const char *addr, grpc_server_credentials *creds, grpc_channel_args *args)
 {
 	int ret;
 	grpc_c_server_t *server;
 	
-	server = gpr_malloc(sizeof(grpc_c_server_t));
+	server = (grpc_c_server_t *)grpc_malloc(sizeof(grpc_c_server_t));
 	if (server == NULL) {
 		return NULL;
 	}
@@ -230,6 +223,9 @@ grpc_c_server_t * grpc_c_server_create_by_host(const char *addr, grpc_server_cre
 	server->queue    = grpc_completion_queue_create_for_next(NULL);
 	server->server   = grpc_server_create(args, NULL);
 	server->hostname = gpr_strdup(addr);
+
+	GRPC_LIST_INIT(&server->contexts_list_head);
+	GRPC_LIST_INIT(&server->method_list_head);
 
 	gpr_mu_init(&server->lock);
 	gpr_cv_init(&server->shutdown_cv);
@@ -273,7 +269,7 @@ void grpc_c_server_master_start(void *arg) {
 
 				break;
 			}else {
-				gc_event->callback(gc_event->data, event.success);
+				gc_event->callback(gc_event, event.success);
 			}
 		}else {
 			break;

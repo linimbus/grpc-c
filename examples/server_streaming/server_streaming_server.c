@@ -86,7 +86,7 @@ main (int argc, char **argv)
     /*
      * Initialize grpc-c library to be used with vanilla gRPC
      */
-    grpc_c_init(GRPC_THREADS, NULL);
+    grpc_c_init();
 
     /*
      * Create server object

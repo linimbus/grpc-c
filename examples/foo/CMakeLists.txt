@@ -10,7 +10,7 @@ file(GLOB SRC_FILE "*.c")
 
 add_executable(${OBJECT} ${SRC_FILE})
 
-TARGET_LINK_LIBRARIES(${OBJECT} protobuf protobuf-c grpc)
+TARGET_LINK_LIBRARIES(${OBJECT} protobuf protobuf-c grpc grpc-c)
 
 # add the install targets
 install (TARGETS ${OBJECT} DESTINATION bin)

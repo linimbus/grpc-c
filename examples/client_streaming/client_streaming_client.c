@@ -65,7 +65,7 @@ main (int argc, char **argv)
     /*
      * Initialize grpc-c library to be used with vanilla grpc
      */
-    grpc_c_init(GRPC_THREADS, NULL);
+    grpc_c_init();
 
     /*
      * Create a client object with client name as client_streaming client to 

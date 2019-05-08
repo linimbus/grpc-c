@@ -290,8 +290,7 @@ int grpc_c_stream_write_done (grpc_call *call,grpc_c_stream_write_t *writer, uin
 	
 	if ( writer->write_done ) {
 		gpr_mu_unlock(&writer->lock);
-		GRPC_C_ERR("Write Done.");
-		return GRPC_C_ERR_FAIL;
+		return GRPC_C_OK;
 	}
 
 	memset(&ops, 0, sizeof(grpc_op));
@@ -332,12 +331,7 @@ int grpc_c_stream_write_done (grpc_call *call,grpc_c_stream_write_t *writer, uin
 
 void grpc_c_status_send_event_cb(grpc_c_event_t *event, int success)
 {
-	grpc_c_stream_status_t * status = (grpc_c_stream_status_t *)event->data;
-
-	gpr_mu_lock(&status->lock);
-	status->result  = (success > 0) ? GRPC_C_OK : GRPC_C_ERR_FAIL;
-	gpr_cv_signal(&status->cv);
-	gpr_mu_unlock(&status->lock);
+	
 }
 
 grpc_c_stream_status_t * grpc_c_status_init( int is_client ) {
@@ -429,17 +423,9 @@ int grpc_c_status_send (grpc_call *call, grpc_c_stream_status_t * status, grpc_c
 		return GRPC_C_ERR_FAIL;
 	}
 
-	(void)gpr_cv_wait(&status->cv, &status->lock, grpc_c_deadline_from_timeout(-1));
-
-	if ( !status->result ) {
-		ret = GRPC_C_OK;
-	}else {
-		ret = GRPC_C_ERR_FAIL;
-	}
-
 	gpr_mu_unlock(&status->lock);
 
-	return ret;
+	return GRPC_C_OK;
 }
 
 void grpc_c_status_recv_event_cb(grpc_c_event_t *event, int success)
@@ -525,7 +511,7 @@ grpc_c_initial_metadata_t * grpc_c_initial_metadata_init( int is_send ) {
 		return NULL;
 	}
 
-	memset(init_metadata, 0, sizeof(grpc_c_stream_status_t));
+	memset(init_metadata, 0, sizeof(grpc_c_initial_metadata_t));
 
 	gpr_mu_init(&init_metadata->lock);
 
