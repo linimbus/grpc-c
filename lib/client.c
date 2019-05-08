@@ -2,6 +2,7 @@
 
 #include <grpc-c/grpc-c.h>
 #include <grpc/support/alloc.h>
+#include <grpc/support/sync.h>
 
 #include "context.h"
 #include "thread_pool.h"
@@ -172,20 +173,23 @@ int grpc_c_client_connect_status_sub(grpc_c_client_t *client) {
 
 	gpr_mu_lock(&client->lock);
 
-	client->connect_status = grpc_channel_check_connectivity_state(client->channel, 0);
-	
-	client->connect_event.type     = GRPC_C_EVENT_CLIENT_CONNECT;
-	client->connect_event.data     = client;
-	client->connect_event.callback = grpc_c_client_connect_status_event_cb;
+	if ( client->channel ) {
+		client->connect_status = grpc_channel_check_connectivity_state(client->channel, 0);
+		
+		client->connect_event.type     = GRPC_C_EVENT_CLIENT_CONNECT;
+		client->connect_event.data     = client;
+		client->connect_event.callback = grpc_c_client_connect_status_event_cb;
 
-	/*
-	 * Watch for change in channel connectivity
-	 */
-	grpc_channel_watch_connectivity_state(client->channel,
-										  client->connect_status,
-										  gpr_inf_future(GPR_CLOCK_REALTIME),
-										  client->queue,
-										  (void *)&client->connect_event);
+		/*
+		 * Watch for change in channel connectivity
+		 */
+		grpc_channel_watch_connectivity_state(client->channel,
+											  client->connect_status,
+											  gpr_inf_future(GPR_CLOCK_REALTIME),
+											  client->queue,
+											  (void *)&client->connect_event);
+	}
+
 	gpr_mu_unlock(&client->lock);
 
 	return GRPC_C_OK;
@@ -278,12 +282,29 @@ grpc_c_client_t * grpc_c_client_init( const char *server_name, const char *clien
 	return client;
 }
 
+int grpc_c_client_stop (grpc_c_client_t *client) {
+
+	gpr_mu_lock(&client->lock);
+	client->shutdown = 1;
+	grpc_channel_destroy(client->channel);
+	client->channel = NULL;
+	grpc_completion_queue_shutdown(client->queue);
+	gpr_mu_unlock(&client->lock);
+
+	return GRPC_C_OK;
+}
+
+
 /*
  * Waits for all callbacks to get done in a threaded client
  */
 void grpc_c_client_wait (grpc_c_client_t *client)
 {
-
+	gpr_mu_lock(&client->lock);
+	if ( !client->shutdown ) {
+		(void)gpr_cv_wait(&client->shutdown_cv, &client->lock, grpc_c_deadline_from_timeout(-1));
+	}
+	gpr_mu_unlock(&client->lock);
 }
 
 /*
@@ -291,7 +312,14 @@ void grpc_c_client_wait (grpc_c_client_t *client)
  */
 void grpc_c_client_free (grpc_c_client_t *client)
 {
+	grpc_c_thread_pool_shutdown(client->thread_pool);
 
+	gpr_mu_destroy(&client->lock);
+	gpr_cv_destroy(&client->shutdown_cv);
+
+	grpc_completion_queue_destroy(client->queue);
+
+	grpc_free(client);
 }
 
 

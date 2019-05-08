@@ -17,64 +17,39 @@ extern "C"{
 
 extern int grpc_c_register_method_ready(grpc_c_server_t *server, grpc_c_method_t *np);
 
-void grpc_c_server_recv_close_event_cb(grpc_c_event_t *event, int success) {
-	grpc_c_context_t *context = (grpc_c_context_t *)event->data;
-
-	gpr_mu_lock(&context->lock);
-	context->state = GRPC_C_STATE_DONE;
-	gpr_cv_signal(&context->shutdown);
-	gpr_mu_unlock(&context->lock);
-}
-
-
-int grpc_c_server_recv_close (grpc_c_context_t *context)
-{
-	grpc_call_error error;
-	grpc_op ops;
-
-	memset(&ops, 0, sizeof(grpc_op));
-
-	ops.op = GRPC_OP_RECV_CLOSE_ON_SERVER;
-	ops.data.recv_close_on_server.cancelled = &context->type.server.client_cancel;
-
-	context->type.server.recv_close_event.type     = GRPC_C_EVENT_RECV_CLOSE;
-	context->type.server.recv_close_event.data     = context;
-	context->type.server.recv_close_event.callback = grpc_c_server_recv_close_event_cb;
-
-	error = grpc_call_start_batch(context->call, &ops, 1, (void *)&context->type.server.recv_close_event, NULL);
-	if (error != GRPC_CALL_OK) {
-
-		GRPC_C_ERR("Failed to recv close ops batch");
-		return GRPC_C_ERR_FAIL;
-	}
-
-	return GRPC_C_OK;
-}
-
 
 void grpc_c_server_call_start(void *arg) {
 	int ret;
+	grpc_c_recv_close_t * recv_close;
 	grpc_c_context_t *context = (grpc_c_context_t *)arg;
 
 	context->state = GRPC_C_STATE_RUN;
 
-	ret = grpc_c_server_recv_close(context);
+	recv_close = grpc_c_server_recv_close_init();
 	if ( ret != GRPC_C_OK ) {
-		grpc_c_context_free(context);
-		return;
+		goto failed;
+	}
+	
+	ret = grpc_c_server_recv_close(context->call, recv_close);
+	if ( ret != GRPC_C_OK ) {
+		goto failed;
 	}
 
 	context->type.server.callback(context);
+	
+	context->state == GRPC_C_STATE_DONE;
+	grpc_c_server_recv_close_wait(recv_close);
 
-	gpr_mu_lock(&context->lock);
-	if ( context->state != GRPC_C_STATE_DONE ) {
-		gpr_cv_wait(&context->shutdown, &context->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
-	}
-	gpr_mu_unlock(&context->lock);
+
+failed:
 
 	GRPC_C_INF("server call method %s exit!", context->method_url );
 
 	grpc_c_context_free(context);
+
+	if ( recv_close ) {
+		grpc_c_server_recv_close_destory( recv_close );
+	}
 }
 
 void grpc_c_server_register_event_cb(grpc_c_event_t *event, int success) {
@@ -259,10 +234,8 @@ void grpc_c_server_master_start(void *arg) {
 	for(;;) {
 		event = grpc_completion_queue_next(server->queue, gpr_inf_future(GPR_CLOCK_MONOTONIC), NULL);
 		if ( event.type == GRPC_OP_COMPLETE ) {
-			
 			grpc_c_event_t * gc_event = (grpc_c_event_t *)event.tag;
 			if ( gc_event->type == GRPC_C_EVENT_SERVER_SHUTDOWN) {
-				
 				gpr_mu_lock(&server->lock);
 				gpr_cv_signal(&server->shutdown_cv);
 				gpr_mu_unlock(&server->lock);
@@ -299,7 +272,6 @@ int grpc_c_server_start(grpc_c_server_t *server)
 	GRPC_LIST_TRAVERSAL(item, &server->method_list_head)
 	{
 		np = GRPC_LIST_OFFSET(item, grpc_c_method_t, list); 
-		
 		ret = grpc_c_register_method_ready(server, np);
 		if (ret != 0) {
 			GRPC_C_ERR("Failed to reregister method %s", np->method_url);

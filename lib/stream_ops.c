@@ -331,7 +331,12 @@ int grpc_c_stream_write_done (grpc_call *call,grpc_c_stream_write_t *writer, uin
 
 void grpc_c_status_send_event_cb(grpc_c_event_t *event, int success)
 {
-	
+	grpc_c_stream_status_t * status = (grpc_c_stream_status_t *)event->data;
+
+	gpr_mu_lock(&status->lock);
+	status->result  = (success > 0) ? GRPC_C_OK : GRPC_C_ERR_FAIL;
+	gpr_cv_signal(&status->cv);
+	gpr_mu_unlock(&status->lock);
 }
 
 grpc_c_stream_status_t * grpc_c_status_init( int is_client ) {
@@ -421,6 +426,14 @@ int grpc_c_status_send (grpc_call *call, grpc_c_stream_status_t * status, grpc_c
 		gpr_mu_unlock(&status->lock);
 		GRPC_C_ERR("Failed to finish send status ops batch");
 		return GRPC_C_ERR_FAIL;
+	}
+
+	(void)gpr_cv_wait(&status->cv, &status->lock, grpc_c_deadline_from_timeout(-1));
+
+	if ( !status->result ) {
+		ret = GRPC_C_OK;
+	}else {
+		ret = GRPC_C_ERR_FAIL;
 	}
 
 	gpr_mu_unlock(&status->lock);
@@ -631,6 +644,80 @@ int grpc_c_recv_initial_metadata (grpc_call *call, grpc_c_initial_metadata_t * i
 	init_metadata->done_once = 1;
 
 	gpr_mu_unlock(&init_metadata->lock);
+
+	return GRPC_C_OK;
+}
+
+grpc_c_recv_close_t * grpc_c_server_recv_close_init() {
+	grpc_c_recv_close_t * recv_close;
+	int ret;
+
+	recv_close = (grpc_c_recv_close_t *)grpc_malloc(sizeof(grpc_c_recv_close_t));
+	if ( NULL == recv_close ) {	
+		GRPC_C_ERR("Nomemory.");
+		return NULL;
+	}
+
+	memset(recv_close, 0, sizeof(grpc_c_recv_close_t));
+
+	gpr_mu_init(&recv_close->lock);
+	gpr_cv_init(&recv_close->cv);
+
+	recv_close->event.data = recv_close;
+	recv_close->result = GRPC_C_ERR_NORECV;
+
+	return recv_close;
+}
+
+void grpc_c_server_recv_close_destory( grpc_c_recv_close_t * recv_close ) {
+	gpr_mu_destroy(&recv_close->lock);
+	gpr_cv_destroy(&recv_close->cv);
+	grpc_free(recv_close);
+}
+
+void grpc_c_server_recv_close_event_cb(grpc_c_event_t *event, int success) {
+	grpc_c_recv_close_t *recv_close = (grpc_c_recv_close_t *)event->data;
+
+	gpr_mu_lock(&recv_close->lock);
+	gpr_cv_signal(&recv_close->cv);
+	recv_close->result = (success > 0) ? GRPC_C_OK : GRPC_C_ERR_FAIL;
+	gpr_mu_unlock(&recv_close->lock);
+}
+
+
+int grpc_c_server_recv_close (grpc_call *call, grpc_c_recv_close_t * recv_close)
+{
+	grpc_call_error error;
+	grpc_op ops;
+
+	memset(&ops, 0, sizeof(grpc_op));
+
+	ops.op = GRPC_OP_RECV_CLOSE_ON_SERVER;
+	ops.data.recv_close_on_server.cancelled = &recv_close->client_cancel;
+
+	recv_close->event.type     = GRPC_C_EVENT_RECV_CLOSE;
+	recv_close->event.data     = recv_close;
+	recv_close->event.callback = grpc_c_server_recv_close_event_cb;
+
+	error = grpc_call_start_batch(call, &ops, 1, (void *)&recv_close->event, NULL);
+	if (error != GRPC_CALL_OK) {
+
+		GRPC_C_ERR("Failed to recv close ops batch");
+		return GRPC_C_ERR_FAIL;
+	}
+
+	return GRPC_C_OK;
+}
+
+int grpc_c_server_recv_close_wait (grpc_c_recv_close_t * recv_close)
+{
+	gpr_mu_lock(&recv_close->lock);
+
+	if (recv_close->result == GRPC_C_ERR_NORECV) {
+		(void)gpr_cv_wait(&recv_close->cv, &recv_close->lock, grpc_c_deadline_from_timeout(-1));
+	}
+
+	gpr_mu_unlock(&recv_close->lock);
 
 	return GRPC_C_OK;
 }

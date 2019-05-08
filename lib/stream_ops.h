@@ -76,6 +76,18 @@ int grpc_c_send_initial_metadata (grpc_call *call, grpc_c_initial_metadata_t * i
 int grpc_c_recv_initial_metadata (grpc_call *call, grpc_c_initial_metadata_t * init_metadata, long timeout);
 
 
+
+
+grpc_c_recv_close_t * grpc_c_server_recv_close_init();
+
+void grpc_c_server_recv_close_destory( grpc_c_recv_close_t * recv_close );
+
+int grpc_c_server_recv_close (grpc_call *call, grpc_c_recv_close_t * recv_close);
+
+int grpc_c_server_recv_close_wait (grpc_c_recv_close_t * recv_close);
+
+
+
 /*
  * Calculate timeout spec from millisecs
  */

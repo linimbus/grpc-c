@@ -17,14 +17,14 @@ void * grpc_c_thread_body(void * arg)
 	for(;;)
 	{
 		gpr_mu_lock(&pool->lock);
-		gpr_cv_wait(&pool->cv, &pool->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
-		if ( pool->shutdown  ) {
+		if ( pool->shutdown ) {
 			pool->stop_threads++;
 			gpr_mu_unlock(&pool->lock);
 			break;
 		}
 
 		if ( GRPC_LIST_EMPTY(&pool->callbacks_head) ) {
+			gpr_cv_wait(&pool->cv, &pool->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
 			gpr_mu_unlock(&pool->lock);
 			continue;
 		}
@@ -56,7 +56,7 @@ grpc_c_thread_t *grpc_c_thread_new(void * arg)
 	(void)pthread_attr_init(&attr);
 	(void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-	ret = pthread_create(&thread->tid, &attr, &grpc_c_thread_body, arg);
+	ret = pthread_create(&thread->tid, &attr, grpc_c_thread_body, arg);
 	if ( ret != 0 ) {
 		GRPC_C_ERR("Failed to create thread!");
 		return NULL;
@@ -135,10 +135,9 @@ int grpc_c_thread_pool_add(grpc_c_thread_pool_t *pool, grpc_c_callback_func_t fu
 /*
  * Shutdown thread pool
  */
-void grpc_c_thread_pool_shutdown(grpc_c_thread_pool_t *pool)
-{
-	int i;
+void grpc_c_thread_pool_shutdown(grpc_c_thread_pool_t *pool) {
 	grpc_c_list_t * item;
+	grpc_c_list_t * temp;
 	
     if (!pool) {
 		return;
@@ -149,7 +148,7 @@ void grpc_c_thread_pool_shutdown(grpc_c_thread_pool_t *pool)
     gpr_cv_broadcast(&pool->cv);
 	gpr_mu_unlock(&pool->lock);
 
-	GRPC_LIST_TRAVERSAL(item, &pool->threads_head )
+	GRPC_LIST_TRAVERSAL_REMOVE(item, temp, &pool->threads_head )
 	{
 		grpc_c_thread_t * thread;
 		thread = GRPC_LIST_OFFSET(item, grpc_c_thread_t, list);
@@ -157,7 +156,7 @@ void grpc_c_thread_pool_shutdown(grpc_c_thread_pool_t *pool)
 		grpc_free(thread);
 	}
 
-	GRPC_LIST_TRAVERSAL(item, &pool->callbacks_head )
+	GRPC_LIST_TRAVERSAL_REMOVE(item, temp, &pool->callbacks_head )
 	{
 		grpc_c_thread_callback_t * callback;
 		callback = GRPC_LIST_OFFSET(item, grpc_c_thread_callback_t, list);

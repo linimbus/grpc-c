@@ -21,8 +21,6 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
 	int ret;
     foo__HelloRequest *h;
 
-	printf("foo__greeter__say_hello_cb entry!\n");
-	
     /*
      * Read incoming message into h
      */

@@ -223,6 +223,15 @@ typedef struct grpc_c_initial_metadata_s {
 }grpc_c_initial_metadata_t;
 
 
+typedef struct grpc_c_recv_close_s {
+	int              client_cancel; /* Boolean indicating if client has cancelled the call */
+	grpc_c_event_t   event;         /* Recv close grpc-c event in case of server context */
+	gpr_mu           lock;
+	gpr_cv           cv;
+	int              result;
+}grpc_c_recv_close_t;
+
+
 /*
  * Structure definition for grpc_c client
  */
@@ -278,8 +287,6 @@ struct grpc_c_context_s {
 			grpc_c_method_t *method;
 			grpc_c_event_t   event;			/* grpc-c event this context belongs to */
 			grpc_c_server_t *server_t;
-			int              client_cancel;			     /* Boolean indicating if client has cancelled the call */
-			grpc_c_event_t   recv_close_event;	         /* Recv close grpc-c event in case of server context */
 			grpc_c_service_callback_t callback;	 /* RPC handler */
 		}server;
 	} type;
@@ -356,6 +363,12 @@ int grpc_c_server_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 grpc_c_client_t * grpc_c_client_init( const char *address, const char *client_id,
 				        		    grpc_channel_credentials *channel_creds,
 				        		    grpc_channel_args *channel_args);
+
+/*
+ * Stop client.
+ */
+int grpc_c_client_stop(grpc_c_client_t *client);
+
 
 /*
  * Waits for all callbacks to get done in a threaded client
@@ -436,11 +449,6 @@ int grpc_c_add_initial_metadata(grpc_c_context_t *context, const char *key, cons
  * Returns 0 on success and 1 on failure
  */
 int grpc_c_add_trailing_metadata(grpc_c_context_t *context, const char *key, const char *value);
-
-/*
- * Get client-id from context
- */
-const char *grpc_c_get_client_id(grpc_c_context_t *context);
 
 /*
  * Main function for sync nostreaming RPC call from client

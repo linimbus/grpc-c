@@ -21,7 +21,7 @@ int foo_client()
 	int ret;
 	grpc_c_status_t status;
 	
-    for ( i = 0 ; i < 2 ; i++ )
+    for ( i = 0 ; i < 10000 ; i++ )
     {
         /*
          * Create a hello request message and call RPC
@@ -46,5 +46,9 @@ int foo_client()
         printf("Finished with %d\n", status.code);
     }
 
+	printf("Finished Count %d\n", i);
+
+	grpc_c_client_stop(client);
+	grpc_c_client_wait(client);
     grpc_c_client_free(client);
 }
