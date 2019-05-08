@@ -61,6 +61,8 @@ void grpc_c_trace_disable(int flags);
 #define GRPC_C_OK             0
 #define GRPC_C_ERR_FAIL       1
 #define GRPC_C_ERR_TMOUT      2
+#define GRPC_C_ERR_NOMEM      3
+#define GRPC_C_ERR_NORECV     4
 
 /*
  * List of all the possible states for grpc_c client and server
@@ -86,15 +88,9 @@ typedef enum grpc_c_event_type_s {
     GRPC_C_EVENT_RECV_CLOSE,
     GRPC_C_EVENT_SERVER_SHUTDOWN,
     GRPC_C_EVENT_SERVER_REGISTER,
+    GRPC_C_EVENT_CLIENT_CONNECT,
 } grpc_c_event_type_t;
 
-/*
- * Event structure to be used as tag when batching gRPC operations
- */
-typedef struct grpc_c_event_s {
-    grpc_c_event_type_t type;   /* Type of this event */
-    void              * data;	/* Data associated with this event */
-} grpc_c_event_t;
 
 typedef struct grpc_c_list_s {
 	struct grpc_c_list_s * next;
@@ -114,13 +110,21 @@ typedef struct grpc_c_status_s {
 /*
  * Forward declarations
  */
+
+
+typedef struct grpc_c_thread_pool_s grpc_c_thread_pool_t;
+
+typedef struct grpc_c_event_s grpc_c_event_t;
 typedef struct grpc_c_server_s grpc_c_server_t;
 typedef struct grpc_c_client_s grpc_c_client_t;
 typedef struct grpc_c_context_s grpc_c_context_t;
 typedef struct grpc_c_method_funcs_s grpc_c_method_funcs_t;
-typedef grpc_metadata_array grpc_c_metadata_array_t;
 typedef struct grpc_c_method_s grpc_c_method_t;
 
+typedef grpc_metadata_array grpc_c_metadata_array_t;
+
+
+typedef void (*grpc_c_event_callback_t)(grpc_c_event_t *event, int success);
 
 typedef size_t (*grpc_c_method_data_pack_t)(void *input, grpc_byte_buffer **buffer);
 
@@ -132,14 +136,22 @@ typedef void (*grpc_c_method_data_free_t)(grpc_c_context_t *context, void *buf);
  * Structure definition for method functions
  */
 struct grpc_c_method_funcs_s {
-    grpc_c_method_data_pack_t   *input_packer;	    /* Input packer */
-    grpc_c_method_data_unpack_t *input_unpacker;	/* Input unpacker */
-    grpc_c_method_data_free_t   *input_free;		/* Input free function */
-    grpc_c_method_data_pack_t   *output_packer;	    /* Output packer */
-    grpc_c_method_data_unpack_t *output_unpacker;	/* Output unpacker */
-    grpc_c_method_data_free_t   *output_free;	    /* Output free function */
+    grpc_c_method_data_pack_t   input_packer;	    /* Input packer */
+    grpc_c_method_data_unpack_t input_unpacker;	/* Input unpacker */
+    grpc_c_method_data_free_t   input_free;		/* Input free function */
+    grpc_c_method_data_pack_t   output_packer;	    /* Output packer */
+    grpc_c_method_data_unpack_t output_unpacker;	/* Output unpacker */
+    grpc_c_method_data_free_t   output_free;	    /* Output free function */
 };
 
+/*
+ * Event structure to be used as tag when batching gRPC operations
+ */
+struct grpc_c_event_s {
+    grpc_c_event_type_t type;   /* Type of this event */
+    void              * data;	/* Data associated with this event */
+	grpc_c_event_callback_t callback;
+};
 
 /*
  * Signature for client callback
@@ -161,31 +173,75 @@ struct grpc_c_method_s {
     char * method_url;			/* URL for this RPC */
     int client_streaming;		/* Flag to indicate if client is streaming */
     int server_streaming;		/* Flag to indicate if server is streaming */
-	grpc_c_service_callback_t handler;
+	void * handler;
     grpc_c_method_funcs_t * funcs;
 };
 
+typedef struct grpc_c_stream_write_s {
+	grpc_c_event_t event;
+	int stream;
+	int count;
+	int write_done;
+	int write_wait;
+	gpr_mu lock;
+	gpr_cv cv;
+	int write_result;
+	grpc_byte_buffer * payload;
+}grpc_c_stream_write_t;
+
+
+typedef struct grpc_c_stream_read_s {
+	grpc_c_event_t event;
+	int stream;
+	int count;
+	int read_wait;
+	gpr_mu lock;
+	gpr_cv cv;
+	uint32_t flags;
+	grpc_byte_buffer * payload;
+}grpc_c_stream_read_t;
+
+
+typedef struct grpc_c_stream_status_s {
+	int              is_client;
+	grpc_c_event_t   event;
+	int              result;
+	gpr_cv           cv;
+	gpr_mu           lock;
+	grpc_c_metadata_array_t trailing_metadata;
+	grpc_status_code status_code;
+	grpc_slice       status_details;
+}grpc_c_stream_status_t;
+
+typedef struct grpc_c_initial_metadata_s {
+	int                     is_send;
+	int                     done_once;
+	grpc_c_metadata_array_t metadata;
+	grpc_c_event_t   event;
+	int              result;
+	gpr_mu           lock;
+}grpc_c_initial_metadata_t;
 
 
 /*
  * Structure definition for grpc_c client
  */
 struct grpc_c_client_s {
-    grpc_channel *gcc_channel;	    /* Underlying grpc channel to host */
-    grpc_completion_queue *gcc_cq;  /* Completion queue associated with this client */
-    grpc_completion_queue *gcc_channel_connectivity_cq;  /* Completion queue to receive channel connectivity change events */
-    gpr_slice gcc_host;		    /* Hostname of remote providing RPC service */
-    char *gcc_id;		        /* Client identification string */
-    int gcc_channel_state;	    /* Channel connectivity state */
-    int gcc_connected;		    /* Connection status */
-    int gcc_conn_timeout;	    /* Connection timeout flag */
-    void *gcc_retry_tag;	    /* Retry tag to be used when stopping reconnection attempts */
-    gpr_mu gcc_lock;		    /* Mutex lock */
-    gpr_cv gcc_callback_cv;	    /* Callback condition variable */
-    gpr_cv gcc_shutdown_cv;	    /* Shutdown condition variable */
-    int gcc_running_cb;		    /* Current running callbacks */
-    int gcc_shutdown;		    /* Client shutdown flag */
-    int gcc_wait;		        /* Waiting flag */
+    grpc_channel * channel;	    /* Underlying grpc channel to host */
+    grpc_completion_queue *queue;  /* Completion queue associated with this client */
+	
+    gpr_slice host;		        /* Hostname of remote providing RPC service */
+    grpc_c_state_t state;	    /* Channel connectivity state */
+	grpc_c_thread_pool_t  * thread_pool;
+	
+    int connect_status;		    /* Connection status */
+	grpc_c_event_t connect_event;
+    int timeout;	            /* Connection timeout flag */
+
+    gpr_mu lock;		        /* Mutex lock */
+    gpr_cv shutdown_cv;	        /* Shutdown condition variable */
+    int shutdown;		        /* Client shutdown flag */
+
     grpc_c_list_t context_list; /* List of active context objects */
 };
 
@@ -193,67 +249,40 @@ struct grpc_c_client_s {
  * Structure definition for grpc-c context
  */
 struct grpc_c_context_s {
-    grpc_c_method_t *gcc_method;		/* Corresponding method */
-    grpc_byte_buffer *gcc_payload;		/* Payload holder */
-    grpc_op *gcc_ops;				/* Array of grpc operations */
-    grpc_byte_buffer **gcc_ops_payload;		/* Payload per operation */
-    grpc_completion_queue *gcc_cq;		/* Completion queue associated
-						   with this context */
-    gpr_timespec gcc_deadline;			/* Deadline for operations in
-						   this context */
-    grpc_c_metadata_array_t *gcc_metadata;	/* Metadata array to send
-						   metadata with each call */
-    char **gcc_metadata_storage;		/* Array pointing to key value
-						   pair storage */
-    grpc_c_metadata_array_t *gcc_initial_metadata;  /* Initial metadata array */
-    char **gcc_initial_metadata_storage;	/* Array containing intitial
-						   metadata key value pairs */
-    grpc_c_metadata_array_t *gcc_trailing_metadata; /* Trailing metadata array */
-    char **gcc_trailing_metadata_storage;	/* Array containing trailing
-						   metadata key value pairs */
-    void *gcc_tag;				/* User provided tag to
-						   identify context in
-						   callbacks */
-    int gcc_meta_sent;				/* Flag to mark that initial
-						   metadata is sent */
-    int gcc_is_client;				/* Flag to mark if context
-						   belongs to client */
-    int gcc_op_count;				/* Number of pending grpc
-						   operations */
-    int gcc_op_capacity;			/* Capacity of gcc_ops array */
-    grpc_c_state_t gcc_state;			/* Current state of
-						   client/server */
-    grpc_call *gcc_call;			/* grpc_call for this RPC */
-    gpr_mu *gcc_lock;				/* Mutex for access to this cq */
-    grpc_status_code gcc_status;		/* Result of RPC execution */
-    grpc_slice gcc_status_details;		/* Status details from RPC
-						   execution */
-    grpc_c_method_funcs_t *gcc_method_funcs;	/* Pointer to method functions
-						   like input/output packer,
-						   unpacker, free and method
-						   callbacks */
+	char       * method_url;
+    gpr_timespec deadline;			/* Deadline for operations in this context */
 
-    grpc_c_service_callback_t *gcmfh_server;    /* RPC handler */
-    grpc_c_client_callback_t  *gcmfh_client;     /* Client callback */
+    grpc_c_state_t state;			/* Current state of client/server */
+    grpc_call *    call;			/* grpc_call for this RPC */
+    gpr_mu         lock;	    	/* Mutex for access to this cq */
+	gpr_cv         shutdown;
+    grpc_c_method_funcs_t *method_funcs;	/* Pointer to method functions like input/output packer,unpacker, free and method callbacks */
 
-    void *gcc_read_resolve_arg;			/* Data that can be passed to
-						   when calling read resolve
-						   cb */
-    void *gcc_write_resolve_arg;		/* Identifying data that can
-						   be passed to user provided
-						   callback when a write is
-						   finished */
-    int gcc_call_cancelled;			/* Boolean indicating that call has been cancelled */
-    int gcc_client_cancel;			/* Boolean indicating if client has cancelled the call */
-    grpc_c_event_t gcc_event;			/* grpc-c event this context belongs to */
-    grpc_c_event_t gcc_read_event;		/* Event tag for read ops */
-    grpc_c_event_t gcc_write_event;		/* Event tag for write ops */
-    grpc_c_event_t gcc_write_done_event;	/* Event tag for write done from client */
-    grpc_c_event_t gcc_recv_close_event;	/* Recv close grpc-c event in case of server context */
+	grpc_c_stream_status_t *status;
+	
+	grpc_c_stream_read_t  *reader;
+	grpc_c_stream_write_t *writer;
+	
+	grpc_c_initial_metadata_t * send_init_metadata;
+	grpc_c_initial_metadata_t * recv_init_metadata;
 
-	grpc_c_server_t *gccd_server;
-	grpc_c_client_t *gccd_client;
-
+	union grpc_c_ctx_data {
+		int is_client;
+		struct grpc_c_context_client_s {
+			grpc_c_client_t           *client_t;
+			void                      *tag;
+			grpc_c_client_callback_t   callback;	 /* Client callback */
+		}client;
+		struct grpc_c_context_server_s {
+			grpc_c_method_t *method;
+			grpc_c_event_t   event;			/* grpc-c event this context belongs to */
+			grpc_c_server_t *server_t;
+			int              client_cancel;			     /* Boolean indicating if client has cancelled the call */
+			grpc_c_event_t   recv_close_event;	         /* Recv close grpc-c event in case of server context */
+			grpc_c_service_callback_t callback;	 /* RPC handler */
+		}server;
+	} type;
+	
 	grpc_c_list_t list; /* List of context objects */
 };
 
@@ -277,22 +306,21 @@ ProtobufCAllocator * grpc_c_get_protobuf_c_allocator (grpc_c_context_t *context,
  * Server structure definition
  */
 struct grpc_c_server_s {
-    char *gcs_host;			                 /* Server hostname */
-    grpc_server *gcs_server;		         /* Grpc server */
-    grpc_completion_queue *gcs_cq;	         /* Server completion queue */
+    char * hostname;			          /* Server hostname */
+    grpc_server * server;		          /* Grpc server */
+	
+    grpc_completion_queue * queue;	      /* Server completion queue */
+	grpc_c_thread_pool_t  * thread_pool;
+
     grpc_c_list_t method_list_head;
-    int gcs_method_count;		          /* Number of registered methods */
-    grpc_c_context_t **gcs_contexts;      /* List of context objects waiting on methods */
-    int gcs_running_cb;			          /* Number of currently running callbacks */
-    gpr_mu gcs_lock;			          /* Mutex lock */
-    gpr_cv *gcs_callback_cv;		      /* Callback condition variable */
-    gpr_cv gcs_shutdown_cv;		          /* Shutdown condition variable */
-    gpr_cv gcs_cq_destroy_cv;		      /* Completion queue destroy cv */
-    int gcs_shutdown;			          /* Server shutting down */
-    int *gcs_callback_shutdown;		      /* Shadow value so grpc_c_server_wait() can consume */
-    int *gcs_callback_running_cb;	      /* Shadow running callback count */
-    int gcs_cq_shutdown;		          /* Boolean to indicate that server completion queue has shutdown */
-    grpc_c_event_t gcs_shutdown_event;	  /* Event signalling server shutdown */
+	grpc_c_list_t contexts_list_head;
+
+    gpr_mu lock;			              /* Mutex lock */
+
+    gpr_cv shutdown_cv;		              /* Shutdown condition variable */
+    int    shutdown;			          /* Server shutting down */
+
+    grpc_c_event_t shutdown_event;	      /* Event signalling server shutdown */
 };
 
 
@@ -419,14 +447,6 @@ int grpc_c_add_initial_metadata(grpc_c_context_t *context, const char *key, cons
  * Returns 0 on success and 1 on failure
  */
 int grpc_c_add_trailing_metadata(grpc_c_context_t *context, const char *key, const char *value);
-
-/*
- * sends immediately the available initial metadata from server.
- * NOTE: This will block the caller till the initial metadata is sent to the
- * receiver. If this is not called, all the added initial metadata will be
- * sent upon first write from server
- */
-int grpc_c_send_initial_metadata(grpc_c_context_t *context, long timeout);
 
 /*
  * Get client-id from context

@@ -17,7 +17,7 @@ void * grpc_c_thread_body(void * arg)
 	for(;;)
 	{
 		gpr_mu_lock(&pool->lock);
-		gpr_cv_wait(&pool->cv, &pool->lock, gpr_inf_future(GPR_CLOCK_REALTIME));
+		gpr_cv_wait(&pool->cv, &pool->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
 		if ( pool->shutdown  ) {
 			pool->stop_threads++;
 			gpr_mu_unlock(&pool->lock);

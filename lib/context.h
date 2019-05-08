@@ -13,9 +13,5 @@ grpc_c_context_t *grpc_c_context_init (grpc_c_method_t *method, int is_client);
  */
 void grpc_c_context_free (grpc_c_context_t *context);
 
-/*
- * Allocate space for operations
- */
-int grpc_c_ops_alloc (grpc_c_context_t *context, int count);
 
 #endif /* GRPC_C_INTERNAL_CONTEXT_H */

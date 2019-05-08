@@ -15,45 +15,131 @@ extern "C"{
 #endif
 #endif /* __cplusplus */
 
+extern int grpc_c_register_method_ready(grpc_c_server_t *server, grpc_c_method_t *np);
+
+void grpc_c_server_recv_close_event_cb(grpc_c_event_t *event, int success) {
+	grpc_c_context_t *context = (grpc_c_context_t *)event->data;
+
+	gpr_mu_lock(&context->lock);
+	context->state = GRPC_C_STATE_DONE;
+	gpr_cv_signal(&context->shutdown);
+	gpr_mu_unlock(&context->lock);
+}
+
+
+int grpc_c_server_recv_close (grpc_c_context_t *context)
+{
+	grpc_call_error error;
+	grpc_op ops;
+
+	memset(&ops, 0, sizeof(grpc_op));
+
+	ops.op = GRPC_OP_RECV_CLOSE_ON_SERVER;
+	ops.data.recv_close_on_server.cancelled = &context->type.server.client_cancel;
+
+	context->type.server.recv_close_event.type     = GRPC_C_EVENT_RECV_CLOSE;
+	context->type.server.recv_close_event.data     = context;
+	context->type.server.recv_close_event.callback = grpc_c_server_recv_close_event_cb;
+
+	error = grpc_call_start_batch(context->call, &ops, 1, (void *)&context->type.server.recv_close_event, NULL);
+	if (error != GRPC_CALL_OK) {
+
+		GRPC_C_ERR("Failed to recv close ops batch");
+		return GRPC_C_ERR_FAIL;
+	}
+
+	return GRPC_C_OK;
+}
+
+
+void grpc_c_server_call_start(void *arg) {
+	int ret;
+	grpc_c_context_t *context = (grpc_c_context_t *)arg;
+
+	context->state = GRPC_C_STATE_RUN;
+
+	ret = grpc_c_server_recv_close(context);
+	if ( ret != GRPC_C_OK ) {
+		grpc_c_context_free(context);
+		return;
+	}
+
+	context->type.server.callback(context);
+
+	gpr_mu_lock(&context->lock);
+	if ( context->state != GRPC_C_STATE_DONE ) {
+		gpr_cv_wait(&context->shutdown, &context->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
+	}
+	gpr_mu_unlock(&context->lock);
+
+	grpc_c_context_free(context);
+}
+
+void grpc_c_server_register_event_cb(grpc_c_event_t *event, int success) {
+
+	grpc_c_context_t *context = (grpc_c_context_t *)event->data;
+	grpc_c_server_t  *server  = context->type.server.server_t;
+
+	gpr_mu_lock(&server->lock);
+	GRPC_LIST_REMOVE(&context->list);
+	gpr_mu_unlock(&server->lock);
+
+	if ( !success ) {
+	    grpc_c_context_free(context);
+	}else {
+		grpc_c_thread_pool_add(server->thread_pool, grpc_c_server_call_start, (void *)context);
+	}
+
+	grpc_c_register_method_ready(context->type.server.server_t, context->type.server.method);
+}
+
 
 int grpc_c_register_method_ready(grpc_c_server_t *server, grpc_c_method_t *np)
 {
-    grpc_call_error e;
+    grpc_call_error error;
 
-    /*
-     * Create a context that gets returned when this is method is called
-     */
+	gpr_mu_lock(&server->lock);
+
+	if ( server->shutdown ) {
+		gpr_mu_unlock(&server->lock);
+		return GRPC_C_OK;
+	}
+
     grpc_c_context_t *context = grpc_c_context_init(np, 0);
     if (context == NULL) {
+		gpr_mu_unlock(&server->lock);
 		GRPC_C_ERR("Failed to create context before starting server");
-		return 1;
+		return GRPC_C_ERR_NOMEM;
     }
 
-    context->gcc_event.type = GRPC_C_EVENT_SERVER_REGISTER;
-    context->gcc_event.data = context;
+	context->type.server.method   = np;
+	context->type.server.server_t = server;
 
-    context->gcc_cq    = grpc_completion_queue_create_for_next(NULL);
-    context->gcc_state = GRPC_C_STATE_NEW;
+	context->type.server.event.type     = GRPC_C_EVENT_SERVER_REGISTER;
+	context->type.server.event.data     = context;
+	context->type.server.event.callback = grpc_c_server_register_event_cb;
 
-    if (!server->gcs_shutdown) {
-		e = grpc_server_request_registered_call(server->gcs_server,
+	error = grpc_server_request_registered_call(server->server,
 												np->method_tag,
-												&context->gcc_call,
-												&context->gcc_deadline,
-												context->gcc_metadata,
+												&context->call,
+												&context->deadline,
+												&context->recv_init_metadata->metadata,
 												NULL,
-												context->gcc_cq,
-												server->gcs_cq,
-												&context->gcc_event);
+												server->queue,
+												server->queue,
+												&context->type.server.event);
+	if (error != GRPC_CALL_OK) {
+		gpr_mu_unlock(&server->lock);
+	    grpc_c_context_free(context);
+	    GRPC_C_ERR("Failed to register call: %d", error);
+	    return GRPC_C_ERR_FAIL;
+	}
 
-		if (e != GRPC_CALL_OK) {
-		    grpc_c_context_free(context);
-		    GRPC_C_ERR("Failed to register call: %d", e);
-		    return 1;
-		}
-    }
+	GRPC_LIST_ADD_BEFORE(&context->list, &server->contexts_list_head);
 
-    return 0;
+	gpr_mu_unlock(&server->lock);
+
+    return GRPC_C_OK;
 }
 
 
@@ -68,9 +154,9 @@ int grpc_c_register_method( grpc_c_server_t *server, const char *method_url,
 	void * method_tag;
 	grpc_c_method_t * method;
 
-	method_tag = grpc_server_register_method(server->gcs_server, 
+	method_tag = grpc_server_register_method(server->server, 
 											 method_url, 
-											 server->gcs_host,
+											 server->hostname,
  										     GRPC_SRM_PAYLOAD_NONE, 0);
 	if (method_tag == NULL) {
 		GRPC_C_ERR("Failed to register method %s", method_url);
@@ -85,10 +171,10 @@ int grpc_c_register_method( grpc_c_server_t *server, const char *method_url,
 
 	method->method_url = gpr_strdup(method_url);
 	method->method_tag = method_tag;
-	method->funcs = funcs;
+	method->funcs            = funcs;
 	method->client_streaming = client_streaming;
 	method->server_streaming = server_streaming;
-	method->handler = handler;
+	method->handler = (void *)handler;
 
 	GRPC_LIST_ADD_BEFORE(&method->list, &server->method_list_head);
 
@@ -107,9 +193,9 @@ int grpc_c_server_add_http2_port (grpc_c_server_t *server, const char* addr, grp
 		return 0;
 
 	if (creds == NULL) {
-		ret = grpc_server_add_insecure_http2_port(server->gcs_server, addr);
+		ret = grpc_server_add_insecure_http2_port(server->server, addr);
 	}else {
-		ret = grpc_server_add_secure_http2_port(server->gcs_server, addr, creds);
+		ret = grpc_server_add_secure_http2_port(server->server, addr, creds);
 	}
 
     return ret;
@@ -141,21 +227,20 @@ grpc_c_server_t * grpc_c_server_create_by_host(const char *addr, grpc_server_cre
 	
 	memset(server, 0, sizeof(grpc_c_server_t));
 
-	server->gcs_cq = grpc_completion_queue_create_for_next(NULL);
-	server->gcs_server = grpc_server_create(args, NULL);
-	server->gcs_host = strdup(addr);
+	server->queue    = grpc_completion_queue_create_for_next(NULL);
+	server->server   = grpc_server_create(args, NULL);
+	server->hostname = gpr_strdup(addr);
 
-	gpr_mu_init(&server->gcs_lock);
-	gpr_cv_init(&server->gcs_cq_destroy_cv);
-	gpr_cv_init(&server->gcs_shutdown_cv);
+	gpr_mu_init(&server->lock);
+	gpr_cv_init(&server->shutdown_cv);
 
 	/*
 	 * If we have credentials, we create a secure server
 	 */
 	if (creds) {
-		ret = grpc_server_add_secure_http2_port(server->gcs_server, addr, creds);
+		ret = grpc_server_add_secure_http2_port(server->server, addr, creds);
 	} else {
-		ret = grpc_server_add_insecure_http2_port(server->gcs_server, addr);
+		ret = grpc_server_add_insecure_http2_port(server->server, addr);
 	}
 
 	if (ret == 0) {
@@ -163,10 +248,41 @@ grpc_c_server_t * grpc_c_server_create_by_host(const char *addr, grpc_server_cre
 		return NULL;
 	}
 
-	grpc_server_register_completion_queue(server->gcs_server, server->gcs_cq, NULL);
+	grpc_server_register_completion_queue(server->server, server->queue, NULL);
 
-	return 0;
+	server->thread_pool = grpc_c_thread_pool_create(gpr_cpu_num_cores());
+	
+	return server;
 }
+
+
+void grpc_c_server_master_start(void *arg) {
+	grpc_event       event;
+	grpc_c_server_t *server = (grpc_c_server_t *)arg;
+	
+	for(;;) {
+		event = grpc_completion_queue_next(server->queue, gpr_inf_future(GPR_CLOCK_MONOTONIC), NULL);
+		if ( event.type == GRPC_OP_COMPLETE ) {
+			
+			grpc_c_event_t * gc_event = (grpc_c_event_t *)event.tag;
+			if ( gc_event->type == GRPC_C_EVENT_SERVER_SHUTDOWN) {
+				
+				gpr_mu_lock(&server->lock);
+				gpr_cv_signal(&server->shutdown_cv);
+				gpr_mu_unlock(&server->lock);
+
+				break;
+			}else {
+				gc_event->callback(gc_event->data, event.success);
+			}
+		}else {
+			break;
+		}
+	}
+
+	GRPC_C_INF("server master task exit!");
+}
+
 
 /*
  * Start server
@@ -182,7 +298,7 @@ int grpc_c_server_start(grpc_c_server_t *server)
 		return 1;
 	}
 
-	grpc_server_start(server->gcs_server);
+	grpc_server_start(server->server);
 
 	GRPC_LIST_TRAVERSAL(item, &server->method_list_head)
 	{
@@ -198,9 +314,9 @@ int grpc_c_server_start(grpc_c_server_t *server)
 	/*
 	 * Schedule a callback if we are threaded
 	 */
+	grpc_c_thread_pool_add(server->thread_pool, grpc_c_server_master_start, server);
 
-
-	return 0;
+	return GRPC_C_OK;
 }
 
 /*
@@ -208,15 +324,36 @@ int grpc_c_server_start(grpc_c_server_t *server)
  */
 void grpc_c_server_wait(grpc_c_server_t *server)
 {
+	gpr_mu_lock(&server->lock);
+	gpr_cv_wait(&server->shutdown_cv, &server->lock, gpr_inf_future(GPR_CLOCK_MONOTONIC));
+	gpr_mu_unlock(&server->lock);
 
+	grpc_c_thread_pool_shutdown(server->thread_pool);
 }
+
 
 /*
  * stop server
  */
 int grpc_c_server_stop(grpc_c_server_t *server)
 {
+	gpr_mu_lock(&server->lock);
+	
+	if ( server->shutdown ) {
+		gpr_mu_unlock(&server->lock);
+		return GRPC_C_OK;
+	}
 
+	server->shutdown_event.type = GRPC_C_EVENT_SERVER_SHUTDOWN;
+	server->shutdown_event.data = (grpc_c_server_t *)server;
+	server->shutdown_event.callback = NULL;
+
+	grpc_server_shutdown_and_notify(server->server, server->queue, &server->shutdown_event);
+
+	server->shutdown = 1;	
+	gpr_mu_unlock(&server->lock);
+
+	return GRPC_C_OK;
 }
 
 /*
