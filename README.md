@@ -7,7 +7,8 @@ C implementation of [gRPC](http://www.grpc.io/) layered of top of core libgrpc.
 Make sure you have the following install in order to install dependencies
 
 ```
-apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev zlib1g openssl libssl-dev pkg-config libgflags-dev libgtest-dev
+apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev \ 
+               zlib1g openssl libssl-dev pkg-config libgflags-dev libgtest-dev
 ```
 
 ## Build
@@ -18,7 +19,7 @@ apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev zlib1g o
 ./buildcmp.sh
 ```
 
-If you want to install dependencies in a different directory other than /usr/local/, use ./buildgen.sh <your-prefix>
+If you want to install dependencies in a different directory other than /usr/local/, use ./builddeps.sh <your-prefix>
 
 
 ## Examples
