@@ -25,20 +25,16 @@ If you want to install dependencies in a different directory other than /usr/loc
 
 ```sh
 cd examples
-make gencode
-make
+./build.sh
 ```
 
 This should build foo_client and foo_server. To run example code, 
 
 ```sh
-./foo_server test
-./foo_client test
+cd examples
+./bin/foo_bin server
+./bin/foo_bin client
 ```
-
-## Status
-
-Pre-alpha. Under active development. APIs may change.
 
 ## Dependencies
 
