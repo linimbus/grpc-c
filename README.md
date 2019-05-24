@@ -4,10 +4,10 @@ C implementation of [gRPC](http://www.grpc.io/) layered of top of core libgrpc.
 
 ## Prerequisites
 
-Make sure you have the following install in order to install dependencies
+Make sure you have the following install in order to install dependencies. Base on ubuntu 18.04.
 
 ```
-apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev \ 
+apt install -y autoconf automake libtool curl make g++ unzip zlib1g-dev \
                zlib1g openssl libssl-dev pkg-config libgflags-dev libgtest-dev
 ```
 
