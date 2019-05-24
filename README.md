@@ -32,6 +32,7 @@ cd examples
 This should build foo_client and foo_server. To run example code, 
 
 ```sh
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 cd examples
 ./bin/foo_bin server
 ./bin/foo_bin client
