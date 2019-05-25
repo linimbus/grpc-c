@@ -110,8 +110,6 @@ typedef struct grpc_c_status_s {
 /*
  * Forward declarations
  */
-
-
 typedef struct grpc_c_thread_pool_s grpc_c_thread_pool_t;
 
 typedef struct grpc_c_event_s grpc_c_event_t;
@@ -123,14 +121,11 @@ typedef struct grpc_c_method_s grpc_c_method_t;
 
 typedef grpc_metadata_array grpc_c_metadata_array_t;
 
-
 typedef void (*grpc_c_event_callback_t)(grpc_c_event_t *event, int success);
 
 typedef size_t (*grpc_c_method_data_pack_t)(void *input, grpc_byte_buffer **buffer);
 
 typedef void *(*grpc_c_method_data_unpack_t)(grpc_c_context_t *context, grpc_byte_buffer *input);
-
-typedef void (*grpc_c_method_data_free_t)(grpc_c_context_t *context, void *buf);
 
 /*
  * Structure definition for method functions
@@ -138,10 +133,8 @@ typedef void (*grpc_c_method_data_free_t)(grpc_c_context_t *context, void *buf);
 struct grpc_c_method_funcs_s {
     grpc_c_method_data_pack_t   input_packer;	    /* Input packer */
     grpc_c_method_data_unpack_t input_unpacker;	/* Input unpacker */
-    grpc_c_method_data_free_t   input_free;		/* Input free function */
     grpc_c_method_data_pack_t   output_packer;	    /* Output packer */
     grpc_c_method_data_unpack_t output_unpacker;	/* Output unpacker */
-    grpc_c_method_data_free_t   output_free;	    /* Output free function */
 };
 
 /*
@@ -250,8 +243,6 @@ struct grpc_c_client_s {
     gpr_mu lock;		        /* Mutex lock */
     gpr_cv shutdown_cv;	        /* Shutdown condition variable */
     int shutdown;		        /* Client shutdown flag */
-
-    grpc_c_list_t context_list; /* List of active context objects */
 };
 
 /*
@@ -345,7 +336,14 @@ int grpc_c_init(void);
  */
 int grpc_c_shutdown(void);
 
+/*
+ * Control log output level.
+ */
+void grpc_c_log_output_level(int level);
 
+/*
+ * User using Interface
+ */
 int grpc_c_read(grpc_c_context_t *context, void **content, uint32_t flags, long timeout);
 
 int grpc_c_write(grpc_c_context_t *context, void *output, uint32_t flags, long timeout);
@@ -360,9 +358,9 @@ int grpc_c_server_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 /*
  * Initialize a client with client_id and server address
  */
-grpc_c_client_t * grpc_c_client_init( const char *address, const char *client_id,
-				        		    grpc_channel_credentials *channel_creds,
-				        		    grpc_channel_args *channel_args);
+grpc_c_client_t * grpc_c_client_init( const char *address, 
+    				        		  grpc_channel_credentials *channel_creds,
+    				        		  grpc_channel_args *channel_args);
 
 /*
  * Stop client.

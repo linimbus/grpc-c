@@ -157,8 +157,6 @@ void FileGenerator::GenerateHeader(io::Printer* printer) {
     "#include <grpc/support/alloc.h>\n"
     "#include <grpc/support/log.h>\n"
     "#include <grpc-c/grpc-c.h>\n"
-    "\n"
-    "PROTOBUF_C__BEGIN_DECLS\n"
     "\n",
     "filename", file_->name(),
     "filename_identifier", filename_identifier);
@@ -240,7 +238,6 @@ void FileGenerator::GenerateHeader(io::Printer* printer) {
 
   printer->Print(
     "\n"
-    "PROTOBUF_C__END_DECLS\n"
     "\n\n#endif  /* PROTOBUF_C_$filename_identifier$__INCLUDED */\n",
     "filename_identifier", filename_identifier);
 }

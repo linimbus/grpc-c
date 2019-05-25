@@ -64,6 +64,11 @@ void grpc_c_context_free (grpc_c_context_t *context)
 		grpc_call_unref(context->call);
 	}
 
+    if (context->method_url)
+    {
+        gpr_free(context->method_url);
+    }
+
 	grpc_c_initial_metadata_destory(context->send_init_metadata);
 	grpc_c_initial_metadata_destory(context->recv_init_metadata);
 
@@ -100,6 +105,8 @@ int grpc_c_read(grpc_c_context_t *context, void **content, uint32_t flags, long 
 	}else {
 		*content = context->method_funcs->input_unpacker(context, output);
 	}
+
+    grpc_byte_buffer_destroy(output);
 
 	return GRPC_C_OK;	
 }
@@ -154,20 +161,22 @@ int grpc_c_client_finish(grpc_c_context_t *context, grpc_c_status_t *status, uin
 	gpr_mu_lock(&context->lock);
 	if ( context->state != GRPC_C_STATE_RUN ) {
 		gpr_mu_unlock(&context->lock);
-		return GRPC_C_ERR_FAIL;
+		ret = GRPC_C_ERR_FAIL;
+        goto failed;
 	}
 
 	ret = grpc_c_stream_write_done(context->call, context->writer, flags, -1);
 	if ( ret != GRPC_C_OK ) {
 		gpr_mu_unlock(&context->lock);
-		return ret;
+		goto failed;
 	}
-	
+
+    context->state = GRPC_C_STATE_DONE;
 	ret = grpc_c_status_recv(context->call, context->status, status, flags);
-
-	context->state = GRPC_C_STATE_DONE;
-
 	gpr_mu_unlock(&context->lock);
+
+failed:
+    grpc_c_context_free(context);
 
 	return ret;
 }

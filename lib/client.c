@@ -81,10 +81,7 @@ int grpc_c_client_request_sync( grpc_c_client_t *client,
 		goto failed;
 	}
 
-	ret = grpc_c_client_finish(context, status, 0);
-	if (ret != GRPC_C_OK) {
-		goto failed;
-	}
+    return grpc_c_client_finish(context, status, 0);
 
 failed:
 	grpc_c_context_free(context);
@@ -132,7 +129,6 @@ int grpc_c_client_request_stream( grpc_c_client_t *client,
 	}
 
 	context->state = GRPC_C_STATE_RUN;
-
 	context->call = grpc_channel_create_call(client->channel, NULL, 0, 
 											 client->queue, 
 											 grpc_slice_from_static_string(method_url), 
@@ -174,8 +170,9 @@ int grpc_c_client_connect_status_sub(grpc_c_client_t *client) {
 	gpr_mu_lock(&client->lock);
 
 	if ( client->channel ) {
+        
 		client->connect_status = grpc_channel_check_connectivity_state(client->channel, 0);
-		
+
 		client->connect_event.type     = GRPC_C_EVENT_CLIENT_CONNECT;
 		client->connect_event.data     = client;
 		client->connect_event.callback = grpc_c_client_connect_status_event_cb;
@@ -188,6 +185,8 @@ int grpc_c_client_connect_status_sub(grpc_c_client_t *client) {
 											  gpr_inf_future(GPR_CLOCK_REALTIME),
 											  client->queue,
 											  (void *)&client->connect_event);
+
+        GRPC_C_INF("client connect status is %d", client->connect_status );
 	}
 
 	gpr_mu_unlock(&client->lock);
@@ -220,13 +219,13 @@ void grpc_c_client_master_task(void *arg) {
 }
 
 
-grpc_c_client_t * grpc_c_client_init( const char *server_name, const char *client_id,
+grpc_c_client_t * grpc_c_client_init( const char *server_name, 
 				        		    grpc_channel_credentials *channel_creds,
 				        		    grpc_channel_args *channel_args)
 {
 	grpc_c_client_t *client;
 
-	if (server_name == NULL || client_id == NULL) {
+	if (server_name == NULL) {
 		GRPC_C_ERR("Invalid hostname or client-id");
 		return NULL;
 	}
@@ -318,6 +317,8 @@ void grpc_c_client_free (grpc_c_client_t *client)
 	gpr_cv_destroy(&client->shutdown_cv);
 
 	grpc_completion_queue_destroy(client->queue);
+
+    gpr_slice_unref(client->host);
 
 	grpc_free(client);
 }

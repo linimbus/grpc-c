@@ -13,6 +13,8 @@ extern "C"{
 #endif
 #endif /* __cplusplus */
 
+static int grpc_c_output_level = 2;
+
 void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 {
 	va_list args;
@@ -21,6 +23,11 @@ void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 	const char level_name[2] = {'I','E'};
 	char buffer[1024];
 	int cnt;
+
+    if (level < grpc_c_output_level)
+    {
+        return;
+    }
 
     rslash = strrchr(file, '/');
     if (rslash == NULL) {
@@ -40,6 +47,10 @@ void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 	va_end(args);
 
 	fprintf(stderr, "%s\n", buffer);
+}
+
+void grpc_c_log_output_level(int level) {
+    grpc_c_output_level = level;
 }
 
 /*

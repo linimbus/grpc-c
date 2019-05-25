@@ -269,7 +269,7 @@ void GrpcCServiceGenerator::GenerateCallersImplementations(io::Printer* printer)
     vars_["method"] = method->name();
     vars_["input_lower"] = c::FullNameToLower(method->input_type()->full_name());
     vars_["output_lower"] = c::FullNameToLower(method->output_type()->full_name());
-    printer->Print(vars_, "    {$input_lower$_packer, $input_lower$_unpacker, $input_lower$_free, $output_lower$_packer, $output_lower$_unpacker, $output_lower$_free },\n");
+    printer->Print(vars_, "    {$input_lower$_packer, $input_lower$_unpacker, $output_lower$_packer, $output_lower$_unpacker },\n");
   }
   printer->Print(vars_, "};\n");
 

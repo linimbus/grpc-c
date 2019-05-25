@@ -137,14 +137,13 @@ GenerateHelperFunctionDeclarations(io::Printer* printer)
     vars["lcclassname"] = c::FullNameToLower(descriptor_->full_name());
     printer->Print(vars, 
 		   "\n/* $lcclassname$ packer and unpacker methods */\n"
-		   "size_t\n"
-		   "$lcclassname$_packer (void *input, grpc_byte_buffer **buffer);\n");
+		   "size_t $lcclassname$_packer (void *input, grpc_byte_buffer **buffer);\n");
+    
     printer->Print(vars,
-		   "void *\n"
-		   "$lcclassname$_unpacker (grpc_c_context_t *context, grpc_byte_buffer *buffer);");
+		   "void *$lcclassname$_unpacker (grpc_c_context_t *context, grpc_byte_buffer *buffer);");
+    
     printer->Print(vars, 
-		   "void \n"
-		   "$lcclassname$_free (grpc_c_context_t *context, void *buf);");
+		   "\nvoid $lcclassname$_free ($classname$ * buf);\n");
 }
 
 static int
@@ -188,42 +187,27 @@ GenerateHelperFunctionDefinitions(io::Printer* printer)
 		   "    if (buffer != NULL) {\n"
 		   "        struct ProtobufCAllocator allocator;\n"
 		   "        grpc_byte_buffer_reader reader;\n"
-		   "        grpc_slice slice;\n"
 		   "        grpc_byte_buffer_reader_init(&reader, buffer);\n"
+		   "        grpc_slice slice;\n"
 		   "        char *buf = NULL;\n"
-		   "        size_t buf_len = 0;\n"
-		   "        while (grpc_byte_buffer_reader_next(&reader, &slice) != 0) {\n"
-		   "            if (buf == NULL) {\n"
-		   "                buf = gpr_malloc(GRPC_SLICE_LENGTH(slice));\n"
-		   "            } else {\n"
-		   "                buf = gpr_realloc(buf, buf_len + GRPC_SLICE_LENGTH(slice));\n"
-		   "            }\n"
-		   "            if (buf == NULL) {\n"
-		   "                grpc_slice_unref(slice);\n"
-		   "                break;\n"
-		   "            }\n"
-		   "            if (memcpy(buf + buf_len, GRPC_SLICE_START_PTR(slice), GRPC_SLICE_LENGTH(slice)) == NULL) {\n"
-		   "                gpr_free(buf);\n"
-		   "                grpc_slice_unref(slice);\n"
-		   "                return NULL;\n"
-		   "            }\n"
-		   "            buf_len += GRPC_SLICE_LENGTH(slice);\n"
-		   "            grpc_slice_unref(slice);\n"
-		   "            if (buf == NULL) break;\n"
-		   "        }\n"
-		   "        h = $lcclassname$__unpack(grpc_c_get_protobuf_c_allocator(context, &allocator), buf_len, (void *)buf);\n"
+           "\n"
+           "        slice = grpc_byte_buffer_reader_readall(&reader);\n"
+           "        buf = gpr_malloc(GRPC_SLICE_LENGTH(slice));\n"
+           "        memcpy(buf, GRPC_SLICE_START_PTR(slice), GRPC_SLICE_LENGTH(slice));\n"
+           "\n"
+		   "        h = $lcclassname$__unpack(grpc_c_get_protobuf_c_allocator(context, &allocator), GRPC_SLICE_LENGTH(slice), (void *)buf);\n"
 		   "        gpr_free(buf);\n"
+		   "        grpc_slice_unref(slice);\n"
 		   "    }\n"
 		   "    return h;\n"
 		   "}\n");
 
     printer->Print(vars, 
-		   "\nvoid \n"
-		   "$lcclassname$_free (grpc_c_context_t *context, void *buf)\n"
+		   "\nvoid $lcclassname$_free ($classname$ * buf)\n"
 		   "{\n"
 		   "    struct ProtobufCAllocator allocator;\n"
 		   "    if (buf == NULL) return;\n"
-		   "    $lcclassname$__free_unpacked(($classname$ *)buf, grpc_c_get_protobuf_c_allocator(context, &allocator));\n"
+		   "    $lcclassname$__free_unpacked(buf, grpc_c_get_protobuf_c_allocator(NULL, &allocator));\n"
 		   "}\n");
 }
 

@@ -15,13 +15,13 @@ int foo_client()
      * Create a client object with client name as foo client to be talking to
      * a insecure server
      */
-    grpc_c_client_t *client = grpc_c_client_init("127.0.0.1:3000", "foo client", NULL, NULL);
+    grpc_c_client_t *client = grpc_c_client_init("127.0.0.1:3000", NULL, NULL);
 
     int i;
 	int ret;
 	grpc_c_status_t status;
 	
-    for ( i = 0 ; i < 10000 ; i++ )
+    for ( i = 0 ; i < 100 ; i++ )
     {
         /*
          * Create a hello request message and call RPC
@@ -41,14 +41,24 @@ int foo_client()
         if (r) 
         {
             printf("Got back: %s\n", r->message);
+            foo__hello_reply_free(r);
         }
 
-        printf("Finished with %d\n", status.code);
+        if ( 0 == ret)
+        {
+            printf("Finished with %d\n", status.code);
+        }
+        else
+        {
+            printf("return failed %d\n", ret);
+        }
     }
 
-	printf("Finished Count %d\n", i);
+	printf("Total Count %d\n", i);
 
 	grpc_c_client_stop(client);
 	grpc_c_client_wait(client);
     grpc_c_client_free(client);
+
+    grpc_c_shutdown();
 }

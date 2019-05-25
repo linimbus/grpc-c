@@ -12,6 +12,8 @@
 
 static grpc_c_server_t *test_server;
 
+int test_times = 0;
+
 /*
  * This function gets invoked whenever say_hello RPC gets called
  */
@@ -28,6 +30,10 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
 		printf("Failed to read data from client\n");
     }
 
+    if ( h ) {
+        foo__hello_request_free(h);
+    }
+
     /*
      * Create a reply
      */
@@ -36,10 +42,9 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
 
     char buf[1024];
     buf[0] = '\0';
-    snprintf(buf, 1024, "hello, ");
-    strcat(buf, h->name);
+    snprintf(buf, 1024, "hello, world! from server.");
     r.message = buf;
-
+    
     /*
      * Write reply back to the client
      */
@@ -58,6 +63,12 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
      */
     if (grpc_c_server_finish(context, &status, 0)) {
         printf("Failed to write status\n");
+    }
+
+    test_times++;
+    if ( test_times >= 100 )
+    {
+        grpc_c_server_stop(test_server);
     }
 }
 
@@ -96,4 +107,14 @@ int foo_server()
      * Blocks server to wait to completion
      */
     grpc_c_server_wait(test_server);
+
+    /*
+     * Destory server
+     */
+    grpc_c_server_destroy(test_server);
+
+    /*
+     * Destory grpc-c library.
+     */
+    grpc_c_shutdown();
 }

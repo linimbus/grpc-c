@@ -26,7 +26,7 @@ void grpc_c_server_call_start(void *arg) {
 	context->state = GRPC_C_STATE_RUN;
 
 	recv_close = grpc_c_server_recv_close_init();
-	if ( ret != GRPC_C_OK ) {
+	if ( recv_close == NULL ) {
 		goto failed;
 	}
 	
@@ -61,13 +61,13 @@ void grpc_c_server_register_event_cb(grpc_c_event_t *event, int success) {
 	GRPC_LIST_REMOVE(&context->list);
 	gpr_mu_unlock(&server->lock);
 
-	if ( !success ) {
+	grpc_c_register_method_ready(context->type.server.server_t, context->type.server.method);
+
+    if ( !success ) {
 	    grpc_c_context_free(context);
 	}else {
 		grpc_c_thread_pool_add(server->thread_pool, grpc_c_server_call_start, (void *)context);
 	}
-
-	grpc_c_register_method_ready(context->type.server.server_t, context->type.server.method);
 }
 
 
@@ -160,6 +160,11 @@ int grpc_c_register_method( grpc_c_server_t *server, const char *method_url,
 	return 0;
 }
 
+void grpc_c_method_destory(grpc_c_method_t * method)
+{
+    gpr_free(method->method_url);
+    grpc_free(method);
+}
 
 /*
  * Adds insecure ip/port to grpc server
@@ -237,10 +242,9 @@ void grpc_c_server_master_start(void *arg) {
 			grpc_c_event_t * gc_event = (grpc_c_event_t *)event.tag;
 			if ( gc_event->type == GRPC_C_EVENT_SERVER_SHUTDOWN) {
 				gpr_mu_lock(&server->lock);
+                grpc_completion_queue_shutdown(server->queue);
 				gpr_cv_signal(&server->shutdown_cv);
 				gpr_mu_unlock(&server->lock);
-
-				break;
 			}else {
 				gc_event->callback(gc_event, event.success);
 			}
@@ -329,8 +333,49 @@ int grpc_c_server_stop(grpc_c_server_t *server)
  */
 void grpc_c_server_destroy(grpc_c_server_t *server)
 {
+    grpc_c_list_t *item;
+    grpc_c_list_t *temp;
+    
+	gpr_mu_lock(&server->lock);
 
+    GRPC_LIST_TRAVERSAL_REMOVE(item, temp, &server->contexts_list_head) 
+    {
+        grpc_c_context_t *context = GRPC_LIST_OFFSET(item, grpc_c_context_t, list);
+        GRPC_LIST_REMOVE(&context->list);
+        grpc_c_context_free(context);
+    }
 
+    GRPC_LIST_TRAVERSAL_REMOVE(item, temp, &server->method_list_head) 
+    {
+        grpc_c_method_t *method = GRPC_LIST_OFFSET(item, grpc_c_method_t, list);
+        GRPC_LIST_REMOVE(&method->list);
+        grpc_c_method_destory(method);
+    }
+    
+    if (server->queue)
+    {
+        grpc_completion_queue_destroy(server->queue);
+        server->queue = NULL;
+    }
+    
+    if (server->server)
+    {
+        grpc_server_cancel_all_calls(server->server);
+        grpc_server_destroy(server->server);
+        server->server = NULL;
+    }
+
+    if (server->hostname)
+    {
+        gpr_free(server->hostname);
+    }
+
+    gpr_mu_unlock(&server->lock);
+
+    gpr_mu_destroy(&server->lock);
+    gpr_cv_destroy(&server->shutdown_cv);
+
+    grpc_free(server);
 }
 
 #ifdef __cplusplus

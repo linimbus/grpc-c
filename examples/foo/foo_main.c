@@ -19,6 +19,8 @@ int main(int argv, char ** args) {
 	}else {
 		foo_client();
 	}
+
+    sleep(1);
 	
 	return 0;
 }
