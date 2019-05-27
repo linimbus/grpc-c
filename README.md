@@ -29,7 +29,7 @@ cd examples
 ./build.sh
 ```
 
-This should build foo_client and foo_server. To run example code, 
+To run example code: 
 
 ```sh
 export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -43,3 +43,4 @@ cd examples
 - gRPC [v1.17.2](https://github.com/grpc/grpc/releases/tag/v1.17.2)
 - protobuf 3.6.1.3
 - protobuf-c 1.3.1
+- c-ares 1.15.0
