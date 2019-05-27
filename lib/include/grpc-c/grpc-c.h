@@ -259,9 +259,8 @@ struct grpc_c_context_s {
     grpc_c_method_funcs_t *method_funcs;	/* Pointer to method functions like input/output packer,unpacker, free and method callbacks */
 
 	grpc_c_stream_status_t *status;
-	
-	grpc_c_stream_read_t  *reader;
-	grpc_c_stream_write_t *writer;
+	grpc_c_stream_read_t   *reader;
+	grpc_c_stream_write_t  *writer;
 	
 	grpc_c_initial_metadata_t * send_init_metadata;
 	grpc_c_initial_metadata_t * recv_init_metadata;
@@ -350,10 +349,7 @@ int grpc_c_write(grpc_c_context_t *context, void *output, uint32_t flags, long t
 
 int grpc_c_write_done(grpc_c_context_t *context, uint32_t flags, long timeout);
 
-int grpc_c_client_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t flags);
-
-int grpc_c_server_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t flags);
-
+int grpc_c_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t flags);
 
 /*
  * Initialize a client with client_id and server address
@@ -367,7 +363,6 @@ grpc_c_client_t * grpc_c_client_init( const char *address,
  */
 int grpc_c_client_stop(grpc_c_client_t *client);
 
-
 /*
  * Waits for all callbacks to get done in a threaded client
  */
@@ -378,6 +373,38 @@ void grpc_c_client_wait (grpc_c_client_t *client);
  */
 void grpc_c_client_free (grpc_c_client_t *client);
 
+/*
+ * Main function for sync nostreaming RPC call from client
+ */
+int grpc_c_client_request_sync( grpc_c_client_t *client,
+                			    grpc_c_metadata_array_t *array, uint32_t flags,
+                			    const char *method_url,
+                			    void *input, void **output,
+                				grpc_c_status_t *status,
+                				grpc_c_method_funcs_t * funcs,
+                				long timeout);
+
+/*
+ * Main function for async nostreaming RPC call from client
+ */
+int grpc_c_client_request_async( grpc_c_client_t *client,
+                				 grpc_c_metadata_array_t *mdarray, uint32_t flags,
+                				 const char *method_url,
+                				 void *input,
+                				 grpc_c_client_callback_t *cb, void *tag,
+                				 grpc_c_method_funcs_t * funcs,
+                				 long timeout);
+
+/*
+ * Main function for streaming RPC call from client
+ */
+int grpc_c_client_request_stream( grpc_c_client_t *client,
+                  				  grpc_c_metadata_array_t *mdarray, uint32_t flags,
+                  				  const char *method_url,
+                  				  grpc_c_context_t **context,
+                  				  int client_streaming, int server_streaming,
+                  				  grpc_c_method_funcs_t * funcs,
+                  				  long timeout);
 
 /*
  * Create a server object with given tcp/ip address
@@ -448,38 +475,6 @@ int grpc_c_add_initial_metadata(grpc_c_context_t *context, const char *key, cons
  */
 int grpc_c_add_trailing_metadata(grpc_c_context_t *context, const char *key, const char *value);
 
-/*
- * Main function for sync nostreaming RPC call from client
- */
-int grpc_c_client_request_sync( grpc_c_client_t *client,
-                			    grpc_c_metadata_array_t *array, uint32_t flags,
-                			    const char *method_url,
-                			    void *input, void **output,
-                				grpc_c_status_t *status,
-                				grpc_c_method_funcs_t * funcs,
-                				long timeout);
-
-/*
- * Main function for async nostreaming RPC call from client
- */
-int grpc_c_client_request_async( grpc_c_client_t *client,
-                				 grpc_c_metadata_array_t *mdarray, uint32_t flags,
-                				 const char *method_url,
-                				 void *input,
-                				 grpc_c_client_callback_t *cb, void *tag,
-                				 grpc_c_method_funcs_t * funcs,
-                				 long timeout);
-
-/*
- * Main function for streaming RPC call from client
- */
-int grpc_c_client_request_stream( grpc_c_client_t *client,
-                  				  grpc_c_metadata_array_t *mdarray, uint32_t flags,
-                  				  const char *method_url,
-                  				  grpc_c_context_t **context,
-                  				  int client_streaming, int server_streaming,
-                  				  grpc_c_method_funcs_t * funcs,
-                  				  long timeout);
 
 #ifdef __cplusplus
 #if __cplusplus

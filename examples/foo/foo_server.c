@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2016, Juniper Networks, Inc.
- * All rights reserved.
- */
-
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -17,11 +12,10 @@ int test_times = 0;
 /*
  * This function gets invoked whenever say_hello RPC gets called
  */
-void
-foo__greeter__say_hello_cb (grpc_c_context_t *context)
+void foo__greeter__say_hello_cb(grpc_c_context_t *context)
 {
 	int ret;
-    foo__HelloRequest *h;
+    foo__HelloRequest *h = NULL;
 
     /*
      * Read incoming message into h
@@ -61,14 +55,162 @@ foo__greeter__say_hello_cb (grpc_c_context_t *context)
     /*
      * Finish response for RPC
      */
-    if (grpc_c_server_finish(context, &status, 0)) {
+    if (grpc_c_finish(context, &status, 0)) {
         printf("Failed to write status\n");
     }
+}
 
-    test_times++;
-    if ( test_times >= 100 )
+void foo__greeter__say_hello1_cb(grpc_c_context_t *context)
+{
+	int ret;
+    foo__HelloRequest *h = NULL;
+    
+    char buf[1024];
+    foo__HelloReply r;
+    foo__hello_reply__init(&r);
+
+    /*
+     * Create a reply
+     */
+     
+    buf[0] = '\0';
+    snprintf(buf, 1024, "hello, world! from server.");
+    r.message = buf;
+
+    for(;;)
     {
-        grpc_c_server_stop(test_server);
+        /*
+         * Read incoming message into h
+         */
+        ret = grpc_c_read(context, (void **)&h, 0, -1);
+        if (ret)
+        {
+            break;
+        }
+        foo__hello_request_free(h);
+    }
+
+    /*
+     * Write reply back to the client
+     */
+
+    ret = grpc_c_write(context, &r, 0, -1);
+    if ( ret ) {
+        printf("Failed to write %d\n", ret);
+    }
+    
+    grpc_c_status_t status;
+    status.code = 0;
+	status.message[0] = '\0';
+
+    /*
+     * Finish response for RPC
+     */
+    if (grpc_c_finish(context, &status, 0)) {
+        printf("Failed to write status\n");
+    }
+}
+
+void foo__greeter__say_hello2_cb(grpc_c_context_t *context)
+{
+    int i;
+	int ret;
+    foo__HelloRequest *h = NULL;
+
+    /*
+     * Read incoming message into h
+     */
+    if (grpc_c_read(context, (void **)&h, 0, -1)) {
+		printf("Failed to read data from client\n");
+    }
+
+    if ( h ) {
+        foo__hello_request_free(h);
+    }
+
+    /*
+     * Create a reply
+     */
+    foo__HelloReply r;
+    foo__hello_reply__init(&r);
+
+    char buf[1024];
+    buf[0] = '\0';
+    snprintf(buf, 1024, "hello, world! from server.");
+    r.message = buf;
+
+    for( i = 0 ; i < 100 ; i++ )
+    {
+        /*
+         * Write reply back to the client
+         */
+        
+        ret = grpc_c_write(context, &r, 0, -1);
+        if ( ret ) {
+            printf("Failed to write %d\n", ret);
+            break;
+        }
+    }
+    
+    grpc_c_status_t status;
+    status.code = 0;
+	status.message[0] = '\0';
+
+    /*
+     * Finish response for RPC
+     */
+    if (grpc_c_finish(context, &status, 0)) {
+        printf("Failed to write status\n");
+    }
+}
+
+void foo__greeter__say_hello3_cb(grpc_c_context_t *context)
+{
+	int ret;
+    foo__HelloRequest *h = NULL;
+    
+    char buf[1024];
+    foo__HelloReply r;
+    foo__hello_reply__init(&r);
+
+    /*
+     * Create a reply
+     */
+    for(;;)
+    {
+        /*
+         * Read incoming message into h
+         */
+        ret = grpc_c_read(context, (void **)&h, 0, -1);
+        if (ret)
+        {
+            break;
+        }
+
+        snprintf(buf, 1024, "hello, %s! from server.", h->name);
+        r.message = buf;
+
+        foo__hello_request_free(h);
+        
+        /*
+         * Write reply back to the client
+         */
+        ret = grpc_c_write(context, &r, 0, -1);
+        if ( ret ) {
+            printf("Failed to write %d\n", ret);
+            break;
+        }
+    }
+
+    grpc_c_status_t status;
+    status.code = 0;
+	status.message[0] = '\0';
+
+    /*
+     * Finish response for RPC
+     */
+    if (grpc_c_finish(context, &status, 0)) {
+        printf("Failed to write status\n");
     }
 }
 

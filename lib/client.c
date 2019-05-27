@@ -81,7 +81,7 @@ int grpc_c_client_request_sync( grpc_c_client_t *client,
 		goto failed;
 	}
 
-    return grpc_c_client_finish(context, status, 0);
+    return grpc_c_finish(context, status, 0);
 
 failed:
 	grpc_c_context_free(context);

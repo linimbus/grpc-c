@@ -48,6 +48,7 @@ grpc_c_stream_read_t * grpc_c_stream_reader_init(int streaming)
 	gpr_mu_init(&reader->lock);
 	gpr_cv_init(&reader->cv);
 
+    reader->stream     = streaming;
 	reader->event.type = GRPC_C_EVENT_READ;
 	reader->event.data = (void *)reader;
 	reader->event.callback = grpc_c_stream_read_event_cb;
@@ -176,6 +177,7 @@ grpc_c_stream_write_t * grpc_c_stream_writer_init(int streaming)
 	gpr_mu_init(&writer->lock);
 	gpr_cv_init(&writer->cv);
 
+    writer->stream     = streaming;
 	writer->event.type = GRPC_C_EVENT_WRITE;
 	writer->event.data = (void *)writer;
 	writer->event.callback = grpc_c_stream_write_event_cb;
@@ -263,6 +265,7 @@ int grpc_c_stream_write (grpc_call *call,grpc_c_stream_write_t *writer, grpc_byt
 
 	if ( !writer->write_result ) {
 		ret = GRPC_C_OK;
+        writer->count++;
 	}else {
 		ret = GRPC_C_ERR_FAIL;
 	}

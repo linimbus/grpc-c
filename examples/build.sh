@@ -13,9 +13,6 @@ function proto_to_c()
 }
 
 proto_to_c ./foo foo.proto
-proto_to_c ./server_streaming server_streaming.proto
-proto_to_c ./client_streaming client_streaming.proto
-proto_to_c ./bidi_streaming bidi_streaming.proto
 
 rm -rf build
 mkdir build

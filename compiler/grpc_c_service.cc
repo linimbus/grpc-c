@@ -135,7 +135,7 @@ void GrpcCServiceGenerator::GenerateCallersDeclarations(io::Printer* printer)
 				   "\nint $lcfullname$__$method$__stream(grpc_c_client_t *client, \n"
 				   "      $padddddddddddddddddd$        grpc_c_metadata_array_t *array, uint32_t flags, \n"
 				   "      $padddddddddddddddddd$        grpc_c_context_t **context, \n"
-				   "      $padddddddddddddddddd$        grpc_c_status_t *status, long timeout);\n");
+				   "      $padddddddddddddddddd$        long timeout);\n");
 	}
     
     /* callback */
@@ -319,7 +319,7 @@ void GrpcCServiceGenerator::GenerateCallersImplementations(io::Printer* printer)
 				   "\nint $lcfullname$__$method$__stream(grpc_c_client_t *client, \n"
 				   "      $padddddddddddddddddd$        grpc_c_metadata_array_t *array, uint32_t flags, \n"
 				   "      $padddddddddddddddddd$        grpc_c_context_t **context, \n"
-				   "      $padddddddddddddddddd$        grpc_c_status_t *status, long timeout)\n"
+				   "      $padddddddddddddddddd$        long timeout)\n"
 				   "{\n"
 				   "    return grpc_c_client_request_stream(client, array, flags, $lcfullname$__methods[$index$], \n"
 				   "                                        context, $client_streaming$, $server_streaming$, &$lcfullname$__methods__funcs[$index$], \n"
