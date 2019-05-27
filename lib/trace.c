@@ -20,7 +20,7 @@ void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 	va_list args;
     const char *fname;
     char *rslash;
-	const char level_name[2] = {'I','E'};
+	const char level_name[3] = {'D','I','E'};
 	char buffer[1024];
 	int cnt;
 
