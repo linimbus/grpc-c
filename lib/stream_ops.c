@@ -374,6 +374,8 @@ void grpc_c_status_destory( grpc_c_stream_status_t * status ) {
 			grpc_slice_unref(status->trailing_metadata.metadata[i].value);
 		}
 	}
+    
+    gpr_slice_unref(status->status_details);
 
 	gpr_mu_destroy(&status->lock);
 	gpr_cv_destroy(&status->cv);

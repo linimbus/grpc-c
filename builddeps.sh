@@ -38,6 +38,5 @@ cd ../../
 
 echo "Building gRPC"
 cd third_party/grpc
-make -j 4
-make prefix=${PERFIX_PATH} install
+make prefix=${PERFIX_PATH} install_c
 cd ../../
