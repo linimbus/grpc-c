@@ -19,21 +19,21 @@ extern "C"{
  */
 int grpc_c_init () 
 {
-	gpr_allocation_functions func = {grpc_malloc,NULL,grpc_realloc,grpc_free};
+    gpr_allocation_functions func = {grpc_malloc,NULL,grpc_realloc,grpc_free};
 
-	gpr_set_allocation_functions(func);
+    gpr_set_allocation_functions(func);
 
-	/*
-	 * Initialize trace functions
-	 */
-	grpc_c_trace_init();
+    /*
+     * Initialize trace functions
+     */
+    grpc_c_trace_init();
 
-	/*
-	 * Initialize grpc
-	 */
-	grpc_init();
+    /*
+     * Initialize grpc
+     */
+    grpc_init();
 
-	return 0;
+    return 0;
 }
 
 /*
@@ -41,9 +41,9 @@ int grpc_c_init ()
  */
 int grpc_c_shutdown ()
 {
-	grpc_shutdown();
+    grpc_shutdown();
 
-	return 0;
+    return 0;
 }
 
 

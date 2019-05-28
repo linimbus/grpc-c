@@ -17,12 +17,12 @@ static int grpc_c_output_level = 2;
 
 void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 {
-	va_list args;
+    va_list args;
     const char *fname;
     char *rslash;
-	const char level_name[3] = {'D','I','E'};
-	char buffer[1024];
-	int cnt;
+    const char level_name[3] = {'D','I','E'};
+    char buffer[1024];
+    int cnt;
 
     if (level < grpc_c_output_level)
     {
@@ -31,22 +31,22 @@ void grpc_c_log(int level, const char *file, int line, const char * format, ...)
 
     rslash = strrchr(file, '/');
     if (rslash == NULL) {
-		fname = file;
+        fname = file;
     } else {
-		fname = rslash + 1;
+        fname = rslash + 1;
     }
 
-	cnt = snprintf(buffer, sizeof(buffer) - 1 , "[grpc-c]%c %s:%d ", level_name[level], fname, line );
-	if (cnt == -1) 
+    cnt = snprintf(buffer, sizeof(buffer) - 1 , "[grpc-c]%c %s:%d ", level_name[level], fname, line );
+    if (cnt == -1) 
     {
-		return;
-	}
-	
-	va_start(args, format);
-	vsnprintf(&buffer[cnt], sizeof(buffer)- cnt -1, format, args);
-	va_end(args);
+        return;
+    }
+    
+    va_start(args, format);
+    vsnprintf(&buffer[cnt], sizeof(buffer)- cnt -1, format, args);
+    va_end(args);
 
-	fprintf(stderr, "%s\n", buffer);
+    fprintf(stderr, "%s\n", buffer);
 }
 
 void grpc_c_log_output_level(int level) {
@@ -64,12 +64,12 @@ void grpc_c_gpr_log(gpr_log_func_args *args)
 
     rslash = strrchr(args->file, '/');
     if (rslash == NULL) {
-		fname = args->file;
+        fname = args->file;
     } else {
-		fname = rslash + 1;
+        fname = rslash + 1;
     }
 
-	fprintf(stderr, "[grpc-core]%s %s:%d %s\n", gpr_log_severity_string(args->severity), fname, args->line, args->message);
+    fprintf(stderr, "[grpc-core]%s %s:%d %s\n", gpr_log_severity_string(args->severity), fname, args->line, args->message);
 }
 
 /*
@@ -78,80 +78,80 @@ void grpc_c_gpr_log(gpr_log_func_args *args)
 void grpc_c_trace_enable_by_flag(int flags, int enabled)
 {
     if (flags & GRPC_C_TRACE_ALL) {
-		grpc_tracer_set_enabled("all", enabled);
-		return;
+        grpc_tracer_set_enabled("all", enabled);
+        return;
     }
 
     if (flags & GRPC_C_TRACE_TCP) {
-		grpc_tracer_set_enabled("tcp", enabled);
+        grpc_tracer_set_enabled("tcp", enabled);
     }
 
     if (flags & GRPC_C_TRACE_CHANNEL) {
-		grpc_tracer_set_enabled("channel", enabled);
+        grpc_tracer_set_enabled("channel", enabled);
     }
     
     if (flags & GRPC_C_TRACE_SURFACE) {
-		grpc_tracer_set_enabled("surface", enabled);
+        grpc_tracer_set_enabled("surface", enabled);
     }
     
     if (flags & GRPC_C_TRACE_HTTP) {
-		grpc_tracer_set_enabled("http", enabled);
+        grpc_tracer_set_enabled("http", enabled);
     }
     
     if (flags & GRPC_C_TRACE_FLOWCTL) {
-		grpc_tracer_set_enabled("flowctl", enabled);
+        grpc_tracer_set_enabled("flowctl", enabled);
     }
     
     if (flags & GRPC_C_TRACE_BATCH) {
-		grpc_tracer_set_enabled("batch", enabled);
+        grpc_tracer_set_enabled("batch", enabled);
     }
     
     if (flags & GRPC_C_TRACE_CONNECTIVITY_STATE) {
-		grpc_tracer_set_enabled("connectivity_state", enabled);
+        grpc_tracer_set_enabled("connectivity_state", enabled);
     }
 
     if (flags & GRPC_C_TRACE_SECURE_ENDPOINT) {
-		grpc_tracer_set_enabled("secure_endpoint", enabled);
+        grpc_tracer_set_enabled("secure_endpoint", enabled);
     }
 
     if (flags & GRPC_C_TRACE_TRANSPORT_SECURITY) {
-		grpc_tracer_set_enabled("transport_security", enabled);
+        grpc_tracer_set_enabled("transport_security", enabled);
     }
 
     if (flags & GRPC_C_TRACE_ROUND_ROBIN) {
-		grpc_tracer_set_enabled("round_robin", enabled);
+        grpc_tracer_set_enabled("round_robin", enabled);
     }
 
     if (flags & GRPC_C_TRACE_HTTP_WRITE_STATE) {
-		grpc_tracer_set_enabled("http_write_state", enabled);
+        grpc_tracer_set_enabled("http_write_state", enabled);
     }
 
     if (flags & GRPC_C_TRACE_API) {
-		grpc_tracer_set_enabled("api", enabled);
+        grpc_tracer_set_enabled("api", enabled);
     }
 
     if (flags & GRPC_C_TRACE_CHANNEL_STACK_BUILDER) {
-		grpc_tracer_set_enabled("channel_stack_builder", enabled);
+        grpc_tracer_set_enabled("channel_stack_builder", enabled);
     }
 
     if (flags & GRPC_C_TRACE_HTTP1) {
-		grpc_tracer_set_enabled("http1", enabled);
+        grpc_tracer_set_enabled("http1", enabled);
     }
 
     if (flags & GRPC_C_TRACE_COMPRESSION) {
-		grpc_tracer_set_enabled("compression", enabled);
+        grpc_tracer_set_enabled("compression", enabled);
     }
 
     if (flags & GRPC_C_TRACE_QUEUE_PLUCK) {
-		grpc_tracer_set_enabled("queue_pluck", enabled);
+        grpc_tracer_set_enabled("queue_pluck", enabled);
     }
 
     if (flags & GRPC_C_TRACE_QUEUE_TIMEOUT) {
-		grpc_tracer_set_enabled("queue_timeout", enabled);
+        grpc_tracer_set_enabled("queue_timeout", enabled);
     }
 
     if (flags & GRPC_C_TRACE_OP_FAILURE) {
-		grpc_tracer_set_enabled("op_failure", enabled);
+        grpc_tracer_set_enabled("op_failure", enabled);
     }
 }
 

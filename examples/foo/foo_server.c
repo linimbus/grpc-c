@@ -14,14 +14,14 @@ int test_times = 0;
  */
 void foo__greeter__say_hello_cb(grpc_c_context_t *context)
 {
-	int ret;
+    int ret;
     foo__HelloRequest *h = NULL;
 
     /*
      * Read incoming message into h
      */
     if (grpc_c_read(context, (void **)&h, 0, -1)) {
-		printf("Failed to read data from client\n");
+        printf("Failed to read data from client\n");
     }
 
     if ( h ) {
@@ -50,7 +50,7 @@ void foo__greeter__say_hello_cb(grpc_c_context_t *context)
 
     grpc_c_status_t status;
     status.code = 0;
-	status.message[0] = '\0';
+    status.message[0] = '\0';
 
     /*
      * Finish response for RPC
@@ -62,7 +62,7 @@ void foo__greeter__say_hello_cb(grpc_c_context_t *context)
 
 void foo__greeter__say_hello1_cb(grpc_c_context_t *context)
 {
-	int ret;
+    int ret;
     foo__HelloRequest *h = NULL;
     
     char buf[1024];
@@ -101,7 +101,7 @@ void foo__greeter__say_hello1_cb(grpc_c_context_t *context)
     
     grpc_c_status_t status;
     status.code = 0;
-	status.message[0] = '\0';
+    status.message[0] = '\0';
 
     /*
      * Finish response for RPC
@@ -114,14 +114,14 @@ void foo__greeter__say_hello1_cb(grpc_c_context_t *context)
 void foo__greeter__say_hello2_cb(grpc_c_context_t *context)
 {
     int i;
-	int ret;
+    int ret;
     foo__HelloRequest *h = NULL;
 
     /*
      * Read incoming message into h
      */
     if (grpc_c_read(context, (void **)&h, 0, -1)) {
-		printf("Failed to read data from client\n");
+        printf("Failed to read data from client\n");
     }
 
     if ( h ) {
@@ -139,12 +139,11 @@ void foo__greeter__say_hello2_cb(grpc_c_context_t *context)
     snprintf(buf, 1024, "hello, world! from server.");
     r.message = buf;
 
-    for( i = 0 ; i < 100 ; i++ )
+    for( i = 0 ; i < 10000 ; i++ )
     {
         /*
          * Write reply back to the client
          */
-        
         ret = grpc_c_write(context, &r, 0, -1);
         if ( ret ) {
             printf("Failed to write %d\n", ret);
@@ -154,7 +153,7 @@ void foo__greeter__say_hello2_cb(grpc_c_context_t *context)
     
     grpc_c_status_t status;
     status.code = 0;
-	status.message[0] = '\0';
+    status.message[0] = '\0';
 
     /*
      * Finish response for RPC
@@ -166,7 +165,7 @@ void foo__greeter__say_hello2_cb(grpc_c_context_t *context)
 
 void foo__greeter__say_hello3_cb(grpc_c_context_t *context)
 {
-	int ret;
+    int ret;
     foo__HelloRequest *h = NULL;
     
     char buf[1024];
@@ -204,7 +203,7 @@ void foo__greeter__say_hello3_cb(grpc_c_context_t *context)
 
     grpc_c_status_t status;
     status.code = 0;
-	status.message[0] = '\0';
+    status.message[0] = '\0';
 
     /*
      * Finish response for RPC
@@ -231,8 +230,8 @@ int foo_server()
      */
     test_server = grpc_c_server_create("127.0.0.1:3000", NULL, NULL);
     if (test_server == NULL) {
-		printf("Failed to create server\n");
-		exit(1);
+        printf("Failed to create server\n");
+        exit(1);
     }
 
     /*

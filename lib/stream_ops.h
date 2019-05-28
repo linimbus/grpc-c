@@ -16,7 +16,7 @@
 #include <grpc-c/grpc-c.h>
 
 #include "context.h"
-
+#include "metadata_array.h"
 
 grpc_c_stream_read_t * grpc_c_stream_reader_init(int streaming);
 
@@ -61,8 +61,12 @@ int grpc_c_status_send (grpc_call *call, grpc_c_stream_status_t * status, grpc_c
 int grpc_c_status_recv (grpc_call *call, grpc_c_stream_status_t * status, grpc_c_status_t *status_output, uint32_t flags);
 
 
+int grpc_c_status_trailing_metadata_set( grpc_c_stream_status_t * status, const char * key, const char * value );
 
-int grpc_c_initial_metadata_set( grpc_c_initial_metadata_t * init_metadata, const char * key, char * value );
+int grpc_c_status_trailing_metadata_get( grpc_c_stream_status_t * status, const char * key, char * value, size_t len );
+
+
+int grpc_c_initial_metadata_set( grpc_c_initial_metadata_t * init_metadata, const char * key, const char * value );
 
 int grpc_c_initial_metadata_get( grpc_c_initial_metadata_t * init_metadata, const char * key, char * value, size_t len );
 

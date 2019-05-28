@@ -8,7 +8,7 @@ void foo_client_call_0( grpc_c_client_t *client ) {
     int ret;
     grpc_c_status_t status;
     
-    for ( i = 0 ; i < 100 ; i++ )
+    for ( i = 0 ; i < 10000 ; i++ )
     {
         /*
          * Create a hello request message and call RPC
@@ -63,7 +63,7 @@ void foo_client_call_1( grpc_c_client_t *client )
     snprintf(str, 1024, "world");
     h.name = str;
 
-    for ( i = 0 ; i < 100 ; i++ )
+    for ( i = 0 ; i < 10000 ; i++ )
     {
         ret = grpc_c_write(context, &h, 0, -1);
         if ( ret )
@@ -185,7 +185,7 @@ void foo_client_call_3( grpc_c_client_t *client )
     snprintf(str, 1024, "world");
     h.name = str;
 
-    for ( i = 0 ; i < 100 ; i++ )
+    for ( i = 0 ; i < 10000 ; i++ )
     {
         ret = grpc_c_write(context, &h, 0, -1);
         if ( ret )
@@ -243,8 +243,8 @@ int foo_client()
     foo_client_call_2(client);
     foo_client_call_3(client);
 
-	grpc_c_client_stop(client);
-	grpc_c_client_wait(client);
+    grpc_c_client_stop(client);
+    grpc_c_client_wait(client);
     grpc_c_client_free(client);
 
     grpc_c_shutdown();

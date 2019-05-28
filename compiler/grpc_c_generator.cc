@@ -103,9 +103,9 @@ GrpcCGenerator::GrpcCGenerator() {}
 GrpcCGenerator::~GrpcCGenerator() {}
 
 bool GrpcCGenerator::Generate(const FileDescriptor* file,
-			       const string& parameter,
-			       OutputDirectory* output_directory,
-			       string* error) const {
+                   const string& parameter,
+                   OutputDirectory* output_directory,
+                   string* error) const {
   std::vector<std::pair<string, string> > options;
   ParseOptions(parameter, &options);
 

@@ -84,7 +84,7 @@ class MessagePackUnpackGenerator {
  public:
   // See generator.cc for the meaning of dllexport_decl.
   explicit MessagePackUnpackGenerator(const Descriptor* descriptor,
-				      const string& dllexport_decl);
+                      const string& dllexport_decl);
   ~MessagePackUnpackGenerator();
 
   // Header stuff.
@@ -111,7 +111,7 @@ class MessagePackUnpackGenerator {
 class GrpcCMessageGenerator {
  public:
   explicit GrpcCMessageGenerator(const Descriptor* descriptor, 
-			    const string& dllexport_decl);
+                const string& dllexport_decl);
 
   ~GrpcCMessageGenerator();
 
