@@ -14,12 +14,14 @@ apt install -y autoconf automake libtool curl make cmake g++ unzip zlib1g-dev \
 ## Build
 
 ```sh
+git clone https://github.com/lixiangyun/grpc-c.git
+cd grpc-c
 ./builddeps.sh
 ./buildlib.sh
 ./buildcmp.sh
 ```
 
-If you want to install dependencies in a different directory other than /usr/local/, use ./builddeps.sh <your-prefix>
+If you want to install dependencies in a different directory other than /usr/local/, use ./builddeps.sh and ./buildlib.sh <your-prefix>
 
 
 ## Examples
