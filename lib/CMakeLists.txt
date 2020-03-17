@@ -2,9 +2,10 @@ cmake_minimum_required (VERSION 2.6)
 project(grpc-c)
 
 set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} -g -g3 -ggdb3 -gdwarf-2")
-
 include_directories("${PROJECT_SOURCE_DIR}")
 include_directories("${PROJECT_SOURCE_DIR}/include")
+include_directories("${PROJECT_SOURCE_DIR}/../third_party/grpc/include")
+include_directories("${PROJECT_SOURCE_DIR}/../third_party/protobuf-c")
 
 file(GLOB SRC_FILE "*.c")
 file(GLOB INC_FILE "include/grpc-c/*.h")
@@ -18,7 +19,7 @@ SET_TARGET_PROPERTIES (grpc-c-static PROPERTIES OUTPUT_NAME "grpc-c")
 
 set(PROTOBUF_C_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotobuf-c.a")
 set(GRPC_LIB "${CMAKE_INSTALL_PREFIX}/lib/libgrpc.a")
-set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotobuf.a")
+set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotobuf.a")
 
 TARGET_LINK_LIBRARIES(grpc-c-shared ${PROTOBUF_LIB} ${PROTOBUF_C_LIB} ${GRPC_LIB})
 TARGET_LINK_LIBRARIES(grpc-c-static ${PROTOBUF_LIB} ${PROTOBUF_C_LIB} ${GRPC_LIB})

@@ -14,6 +14,7 @@ include_directories("${PROJECT_SOURCE_DIR}/")
 include_directories("${PROJECT_SOURCE_DIR}/../third_party/protobuf-c/")
 include_directories("${PROJECT_SOURCE_DIR}/../third_party/protobuf-c/protobuf-c")
 include_directories("${PROJECT_SOURCE_DIR}/../third_party/protobuf-c/protoc-c")
+include_directories("${PROJECT_SOURCE_DIR}/../third_party/grpc/third_party/protobuf/src")
 
 # add the executable
 add_executable(protoc-gen-grpc-c
@@ -37,8 +38,8 @@ add_executable(protoc-gen-grpc-c
     grpc_c_service.cc
     main.cc )
 
-set(PROTOC_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotoc.a")
-set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotobuf.a")
+set(PROTOC_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotoc.a")
+set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotobuf.a")
 
 TARGET_LINK_LIBRARIES(protoc-gen-grpc-c ${PROTOC_LIB} ${PROTOBUF_LIB})
 

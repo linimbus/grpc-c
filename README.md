@@ -8,7 +8,7 @@ Make sure you have the following install in order to install dependencies. Base 
 
 ```
 apt install -y autoconf automake libtool curl make cmake g++ unzip zlib1g-dev \
-               zlib1g openssl libssl-dev pkg-config libgflags-dev libgtest-dev
+               zlib1g openssl libssl-dev pkg-config libgflags-dev libgtest-dev golang
 ```
 
 ## Build
@@ -30,7 +30,7 @@ cd examples
 ./build.sh
 ```
 
-if you install dependencies  in <your-prefix>
+if you install dependencies  in  your-prefix
 
 ```cd  
 cd examples
