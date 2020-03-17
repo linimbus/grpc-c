@@ -37,7 +37,10 @@ add_executable(protoc-gen-grpc-c
     grpc_c_service.cc
     main.cc )
 
-TARGET_LINK_LIBRARIES(protoc-gen-grpc-c libprotobuf.a libprotoc.a)
+set(PROTOC_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotoc.a")
+set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotobuf.a")
+
+TARGET_LINK_LIBRARIES(protoc-gen-grpc-c ${PROTOC_LIB} ${PROTOBUF_LIB})
 
 # add the install targets
 install (TARGETS protoc-gen-grpc-c DESTINATION bin)

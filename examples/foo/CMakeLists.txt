@@ -10,7 +10,15 @@ file(GLOB SRC_FILE "*.c")
 
 add_executable(${OBJECT} ${SRC_FILE})
 
-TARGET_LINK_LIBRARIES(${OBJECT} protobuf-c grpc grpc-c)
+set(PROTOBUF_C_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotobuf-c.a")
+set(GRPC_LIB "${CMAKE_INSTALL_PREFIX}/lib/libgrpc.a")
+set(GRPC_C_LIB "${CMAKE_INSTALL_PREFIX}/lib/libgrpc-c.a")
+set(GPR_LIB "${CMAKE_INSTALL_PREFIX}/liblibgpr.a")
+
+file(GLOB LIBS "${CMAKE_INSTALL_PREFIX}/lib/lib*.a")
+file(GLOB LIB64S "${CMAKE_INSTALL_PREFIX}/lib64/lib*.a")
+
+TARGET_LINK_LIBRARIES(${OBJECT} -Wl,--start-group ${LIBS}  ${LIB64S} -lpthread -lstdc++ -lm -Wl,--end-group)
 
 # add the install targets
-install (TARGETS ${OBJECT} DESTINATION bin)
+install (TARGETS ${OBJECT} DESTINATION ${PROJECT_SOURCE_DIR}/bin)

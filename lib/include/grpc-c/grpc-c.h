@@ -356,7 +356,8 @@ int grpc_c_finish(grpc_c_context_t *context, grpc_c_status_t *status, uint32_t f
  */
 grpc_c_client_t * grpc_c_client_init( const char *address, 
                                       grpc_channel_credentials *channel_creds,
-                                      grpc_channel_args *channel_args);
+                                      grpc_channel_args *channel_args,
+                                      int thread_nums);
 
 /*
  * Stop client.

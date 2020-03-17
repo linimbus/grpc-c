@@ -14,21 +14,27 @@ apt install -y autoconf automake libtool curl make cmake g++ unzip zlib1g-dev \
 ## Build
 
 ```sh
-git clone https://github.com/lixiangyun/grpc-c.git
+git clone https://github.com/h00448672/grpc-c.git
 cd grpc-c
-./builddeps.sh
-./buildlib.sh
-./buildcmp.sh
+./buildall.sh
 ```
 
-If you want to install dependencies in a different directory other than /usr/local/, use ./builddeps.sh and ./buildlib.sh <your-prefix>
-
+If you want to install dependencies in a different directory other than /usr/local/, use ./buildall.sh  <your-prefix>
 
 ## Examples
+
+if you install dependencies  in /usr/local
 
 ```sh
 cd examples
 ./build.sh
+```
+
+if you install dependencies  in <your-prefix>
+
+```cd  
+cd examples
+./build.sh  <your-prefix>
 ```
 
 To run example code: 
@@ -45,4 +51,4 @@ cd examples
 - gRPC [v1.17.2](https://github.com/grpc/grpc/releases/tag/v1.17.2)
 - protobuf 3.6.1.3
 - protobuf-c 1.3.1
-- c-ares 1.15.0
+- c-ares 1.17.0

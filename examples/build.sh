@@ -14,10 +14,16 @@ function proto_to_c()
 
 proto_to_c ./foo foo.proto
 
+GRPC_INSTALL_PATH=/usr/local
+if [ $# gt 0 ]
+then
+    GRPC_INSTALL_PATH=$1
+fi
+
 rm -rf build
 mkdir build
 cd build
-cmake ..
+cmake -DCMAKE_INSTALL_PREFIX=${GRPC_INSTALL_PATH} ..
 make -j 4
 make install
 cd ..

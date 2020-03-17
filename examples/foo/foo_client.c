@@ -235,8 +235,9 @@ int foo_client()
     /*
      * Create a client object with client name as foo client to be talking to
      * a insecure server
+     * if thread_nums <= 0, grpc_c will create the number of the cup core threads, otherwise it will create thread_nums threads
      */
-    grpc_c_client_t *client = grpc_c_client_init("127.0.0.1:3000", NULL, NULL);
+    grpc_c_client_t *client = grpc_c_client_init("127.0.0.1:3000", NULL, NULL, 0);
 
     foo_client_call_0(client);
     foo_client_call_1(client);

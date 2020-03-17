@@ -16,8 +16,12 @@ add_library(grpc-c-static STATIC ${SRC_FILE})
 SET_TARGET_PROPERTIES (grpc-c-shared PROPERTIES OUTPUT_NAME "grpc-c")
 SET_TARGET_PROPERTIES (grpc-c-static PROPERTIES OUTPUT_NAME "grpc-c")
 
-TARGET_LINK_LIBRARIES(grpc-c-shared protobuf protobuf-c grpc)
-TARGET_LINK_LIBRARIES(grpc-c-static protobuf protobuf-c grpc)
+set(PROTOBUF_C_LIB "${CMAKE_INSTALL_PREFIX}/lib/libprotobuf-c.a")
+set(GRPC_LIB "${CMAKE_INSTALL_PREFIX}/lib/libgrpc.a")
+set(PROTOBUF_LIB "${CMAKE_INSTALL_PREFIX}/lib64/libprotobuf.a")
+
+TARGET_LINK_LIBRARIES(grpc-c-shared ${PROTOBUF_LIB} ${PROTOBUF_C_LIB} ${GRPC_LIB})
+TARGET_LINK_LIBRARIES(grpc-c-static ${PROTOBUF_LIB} ${PROTOBUF_C_LIB} ${GRPC_LIB})
 
 # add the install targets
 install (TARGETS grpc-c-shared DESTINATION lib)

@@ -221,9 +221,19 @@ void grpc_c_client_master_task(void *arg) {
 
 grpc_c_client_t * grpc_c_client_init( const char *server_name, 
                                     grpc_channel_credentials *channel_creds,
-                                    grpc_channel_args *channel_args)
+                                    grpc_channel_args *channel_args,
+                                    int thread_nums)
 {
     grpc_c_client_t *client;
+    int n;
+    if (thread_nums <= 0)
+    {
+        n = gpr_cpu_num_cores();
+    }
+    else
+    {
+    	n = thread_nums;
+    }
 
     if (server_name == NULL) {
         GRPC_C_ERR("Invalid hostname or client-id");
@@ -240,7 +250,7 @@ grpc_c_client_t * grpc_c_client_init( const char *server_name,
 
     client->host  = grpc_slice_from_copied_string(server_name);
 
-    client->thread_pool = grpc_c_thread_pool_create(gpr_cpu_num_cores());
+    client->thread_pool = grpc_c_thread_pool_create(n);
 
     /*
      * Initialize mutex and condition variables
