@@ -15,7 +15,7 @@ function proto_to_c()
 proto_to_c ./foo foo.proto
 
 GRPC_INSTALL_PATH=/usr/local
-if [ $# gt 0 ]
+if [ $# -gt 0 ]
 then
     GRPC_INSTALL_PATH=$1
 fi
