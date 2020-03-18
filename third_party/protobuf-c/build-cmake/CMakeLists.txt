@@ -25,6 +25,8 @@ if(MSVC)
   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4244")
 ENDIF()
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11 -pthread")
+
 get_filename_component(MAIN_DIR ${CMAKE_CURRENT_SOURCE_DIR} PATH)
 SET(TEST_DIR ${MAIN_DIR}/t)
 
