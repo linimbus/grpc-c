@@ -18,7 +18,7 @@ function init(){
     cat /etc/ld.so.conf | grep ${PERFIX_PATH}/lib > /dev/null 2>&1
     if [ $? -gt 0 ]
     then
-        ${PERFIX_PATH}/lib >> /etc/ld.so.conf
+        echo ${PERFIX_PATH}/lib >> /etc/ld.so.conf
         sudo ldconfig
     fi
 }
