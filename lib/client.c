@@ -282,12 +282,15 @@ grpc_c_client_t * grpc_c_client_init( const char *server_name,
 }
 
 int grpc_c_client_stop (grpc_c_client_t *client) {
-
+    grpc_event event;
     gpr_mu_lock(&client->lock);
     client->shutdown = 1;
     grpc_channel_destroy(client->channel);
     client->channel = NULL;
     grpc_completion_queue_shutdown(client->queue);
+    do {
+      event = grpc_completion_queue_next(client->queue, gpr_inf_future(GPR_CLOCK_REALTIME), NULL);
+    } while (event.type != GRPC_QUEUE_SHUTDOWN);  
     gpr_mu_unlock(&client->lock);
 
     return GRPC_C_OK;

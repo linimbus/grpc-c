@@ -13,3 +13,6 @@
 *.so
 *.so.*
 *.dylib
+
+# Directory
+lib/build
