@@ -1,0 +1,9 @@
+*.DS_Store
+build/*
+log/*
+._.*
+._*
+*.out
+*.tar.gz
+publish/*
+vcpkg_installed/*

@@ -1,0 +1,10 @@
+{
+    "dependencies": [
+        "protobuf",
+        {
+            "name": "protobuf-c",
+            "features": []
+        },
+        "grpc"
+    ]
+}

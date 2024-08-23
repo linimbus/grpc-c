@@ -1,0 +1,1 @@
+cmake --preset=release && cmake --build build && cmake --install build
