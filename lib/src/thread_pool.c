@@ -1,6 +1,7 @@
 #include "thread_pool.h"
 #include "trace.h"
 #include <grpc-c.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 #if __cplusplus
