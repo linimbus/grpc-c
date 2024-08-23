@@ -1,0 +1,4 @@
+*.DS_Store
+foo.grpc-c.c
+foo.grpc-c.h
+foo.grpc-c.service.c

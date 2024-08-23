@@ -11,8 +11,7 @@ find_package(protobuf CONFIG REQUIRED)
 find_package(protobuf-c CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 
-add_custom_command(
-    OUTPUT ${PROJECT_SOURCE_DIR}/foo.grpc-c.c
+add_custom_command(OUTPUT ${PROJECT_SOURCE_DIR}/foo.grpc-c.c ${PROJECT_SOURCE_DIR}/foo.grpc-c.service.c
     COMMAND ${PROTOBUF_PROTOC_EXECUTABLE} -I ${PROJECT_SOURCE_DIR} --grpc-c_out=${PROJECT_SOURCE_DIR} --plugin=protoc-gen-grpc-c=$<TARGET_FILE:protoc-gen-grpc-c> --proto_path=${PROTO_C_DIR}/protobuf-c/ ${PROTO_C_FILE}
 )
 
